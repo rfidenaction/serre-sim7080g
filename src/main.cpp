@@ -75,6 +75,26 @@ void setup()
     // --- Serveur Web ---
     WebServer::init();
 
+    // --- Gestion centralisée des tâches périodiques ---
+    TaskManager::init();
+
+    // 1) PowerManager → update + DataLogger toutes les 30s
+    TaskManager::addTask([]() {
+        PowerManager::update();
+        DataLogger::logBattery(
+            PowerManager::getBatteryVoltage(),
+            PowerManager::getBatteryPercent(),
+            PowerManager::isCharging(),
+            PowerManager::isExternalPowerPresent()
+        );
+    }, POWERMANAGER_UPDATE_INTERVAL_MS);
+
+    // 2) WiFiManager → gestion toutes les 2s
+    TaskManager::addTask([]() { WiFiManager::handle(); }, 2000);
+
+    // 3) DataAcquisition (préparé pour plus tard)
+    // TaskManager::addTask([]() { DataAcquisition::handle(); }, 1000);
+
     Logger::info("Initialisation terminée");
 }
 
@@ -83,17 +103,8 @@ void setup()
 // -----------------------------------------------------------------------------
 void loop()
 {
-    // --- Gestion WiFi (reconnexion STA, états AP) ---
-    WiFiManager::handle();
-
-    // --- Tâches périodiques centralisées ---
-    // TaskManager::handle();
-
-    // --- Mise à jour batterie (lecture PMU) ---
-    PowerManager::update();
-
-    // --- Acquisition capteurs (si nécessaire en continu) ---
-    // DataAcquisition::handle();
+    // Exécution centralisée des tâches périodiques
+    TaskManager::handle();
 
     // Rien d’autre ici :
     // - pas de init()

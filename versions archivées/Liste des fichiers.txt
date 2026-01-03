@@ -1,0 +1,62 @@
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/partitions/custom_16MB_2MB_spiffs.csv
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/platformio.ini
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/Config.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/NetworkConfig.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/TimingConfig.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/CellularManager.cpphttps://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/CellularManager.h  
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/WifiManager.cpp    
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/WifiManager.h      
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/PowerManager.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/PowerManager.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/TaskManager.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/TaskManager.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Sensors/DataAcquisition.cpp     
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Sensors/DataAcquisition.h       
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/DataLogger.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/DataLogger.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/FileSystem.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/FileSystem.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Utils/Logger.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Utils/Logger.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/Pages/PagePrincipale.cpp    
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/Pages/PagePrincipale.h      
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/WebServer.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/WebServer.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/main.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/test/README
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/"versions archiv\303\251es/Structure projet.txt"
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/"versions archiv\303\251es/serre_v5-7.cpp"
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/"versions archiv\303\251es/serre_v5-71.cpp"
+PS D:\Perso\Grain de sable\LilyGo T-SIM7080G-S3 Serre> 
+ *  Historique restauré 
+
+PS D:\Perso\Grain de sable\LilyGo T-SIM7080G-S3 Serre> git ls-files | ForEach-Object { "https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/$_" }
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/.gitignore
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/.vscode/extensions.json
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/include/README
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/lib/README
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/partitions/custom_16MB_2MB_spiffs.csv
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/platformio.ini
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/Config.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/NetworkConfig.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Config/TimingConfig.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/CellularManager.cpphttps://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/CellularManager.h  
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/WifiManager.cpp    
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Connectivity/WifiManager.h      
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/PowerManager.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/PowerManager.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/TaskManager.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Core/TaskManager.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Sensors/DataAcquisition.cpp     
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Sensors/DataAcquisition.h       
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/DataLogger.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/DataLogger.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/FileSystem.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Storage/FileSystem.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Utils/Logger.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Utils/Logger.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/Pages/PagePrincipale.cpp    
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/Pages/PagePrincipale.h      
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/WebServer.cpp
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/Web/WebServer.h
+https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/src/main.cpp

@@ -5,7 +5,10 @@
 // Périodes d’échantillonnage (ms)
 // -----------------------------------------------------------------------------
 
-#define BATTERY_UPDATE_INTERVAL_MS   30000   // Lecture batterie (PMU)
+// Intervalle de lecture de la batterie et log PowerManager → DataLogger
+// 30 secondes suffisent pour suivre l'état de la batterie et de l'alimentation externe.
+// Ajuster uniquement si nécessaire.
+#define POWERMANAGER_UPDATE_INTERVAL_MS   30000   // Lecture batterie (PMU)
 
 // À venir :
 // #define TEMP_SENSOR_UPDATE_INTERVAL_MS   10000
