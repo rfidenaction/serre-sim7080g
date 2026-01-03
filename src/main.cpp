@@ -48,7 +48,7 @@ void setup()
     Serial.begin(115200);
     delay(200);
 
-    Logger::init();   // Logger toujours en premier
+    Logger::begin();   // Logger toujours en premier
     Logger::info("Boot système");
 
     startTimeMs = millis();
