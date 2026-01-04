@@ -5,13 +5,15 @@
 #include <Arduino.h>
 #include <SPIFFS.h>
 
-#include "Config.h"
+#include "Config/Config.h"
+#include "Config/TimingConfig.h"
 
 #include "Connectivity/WiFiManager.h"
 #include "Connectivity/CellularManager.h"
 
 #include "Core/PowerManager.h"
 #include "Core/TaskManager.h"
+#include "Core/EventManager.h"
 
 #include "Sensors/DataAcquisition.h"
 
@@ -22,8 +24,22 @@
 #include "Utils/Logger.h"
 
 // -----------------------------------------------------------------------------
+// Cycle de vie système : INIT → RUN
+// -----------------------------------------------------------------------------
+
+static unsigned long bootTimeMs = 0;
+
+// Prototypes des boucles internes
+static void loopInit();
+static void loopRun();
+
+// Pointeur vers la loop active
+static void (*currentLoop)() = loopInit;
+
+// -----------------------------------------------------------------------------
 // Temps de fonctionnement (utilisé par l’interface web)
 // -----------------------------------------------------------------------------
+
 static unsigned long startTimeMs = 0;
 
 String getUptime()
@@ -43,6 +59,7 @@ String getUptime()
 // -----------------------------------------------------------------------------
 // SETUP
 // -----------------------------------------------------------------------------
+
 void setup()
 {
     Serial.begin(115200);
@@ -51,23 +68,24 @@ void setup()
     Logger::begin();   // Logger toujours en premier
     Logger::info("Boot système");
 
-    startTimeMs = millis();
+    bootTimeMs  = millis();
+    startTimeMs = bootTimeMs;
 
     // --- Système de fichiers ---
     if (!SPIFFS.begin(true)) {
         Logger::error("Erreur SPIFFS");
-        // On continue quand même : certaines fonctions peuvent rester actives
+        // On continue quand même
     }
 
-    FileSystem::init();     // Abstraction FS (SPIFFS / SD plus tard)
-    DataLogger::init();     // Historique et persistance des données
+    FileSystem::init();
+    DataLogger::init();
 
     // --- Alimentation / PMU ---
-    PowerManager::init();
+    PowerManager::init();   // Initialise + première lecture immédiate
 
     // --- Connectivités ---
     WiFiManager::init();        // STA + AP
-    CellularManager::init();    // SIM7080G (modem éteint au départ si besoin)
+    CellularManager::init();    // Non utilisé pour l’instant
 
     // --- Capteurs ---
     DataAcquisition::init();    // Initialisation matérielle uniquement
@@ -75,39 +93,68 @@ void setup()
     // --- Serveur Web ---
     WebServer::init();
 
-    // --- Gestion centralisée des tâches périodiques ---
-    TaskManager::init();
-
-    // 1) PowerManager → update + DataLogger toutes les 30s
-    TaskManager::addTask([]() {
-        PowerManager::update();
-        DataLogger::logBattery(
-            PowerManager::getBatteryVoltage(),
-            PowerManager::getBatteryPercent(),
-            PowerManager::isCharging(),
-            PowerManager::isExternalPowerPresent()
-        );
-    }, POWERMANAGER_UPDATE_INTERVAL_MS);
-
-    // 2) WiFiManager → gestion toutes les 2s
-    TaskManager::addTask([]() { WiFiManager::handle(); }, 2000);
-
-    // 3) DataAcquisition (préparé pour plus tard)
-    // TaskManager::addTask([]() { DataAcquisition::handle(); }, 1000);
-
-    Logger::info("Initialisation terminée");
+    Logger::info("Initialisation matérielle terminée");
 }
 
 // -----------------------------------------------------------------------------
-// LOOP
+// LOOP Arduino (immuable)
 // -----------------------------------------------------------------------------
+
 void loop()
 {
-    // Exécution centralisée des tâches périodiques
-    TaskManager::handle();
+    currentLoop();
+}
 
-    // Rien d’autre ici :
-    // - pas de init()
-    // - pas de SPIFFS
-    // - pas de Web
+// -----------------------------------------------------------------------------
+// Phase INIT
+// -----------------------------------------------------------------------------
+
+static void loopInit()
+{
+    // Attente de stabilisation système
+    if (millis() - bootTimeMs < SYSTEM_INIT_DELAY_MS) {
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Transition INIT → RUN (une seule fois)
+    // -------------------------------------------------------------------------
+
+    Logger::info("Entrée en régime permanent");
+
+    // Initialisation EventManager avec état stable
+    EventManager::init();
+    EventManager::prime();
+
+    // Démarrage du TaskManager
+    TaskManager::init();
+
+    // --- Tâche EventManager (rythme système surveillé) ---
+    TaskManager::addTask(
+        []() {
+            EventManager::handle();
+        },
+        EVENT_MANAGER_PERIOD_MS
+    );
+
+    // --- Tâche PowerManager (cycle lent) ---
+    TaskManager::addTask(
+        []() {
+            PowerManager::update();
+        },
+        POWER_MANAGER_UPDATE_INTERVAL_MS
+    );
+
+    // Bascule définitive vers la loop de production
+    currentLoop = loopRun;
+}
+
+// -----------------------------------------------------------------------------
+// Phase RUN (production)
+// -----------------------------------------------------------------------------
+
+static void loopRun()
+{
+    WiFiManager::handle();
+    TaskManager::handle();
 }

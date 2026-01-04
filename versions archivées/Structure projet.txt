@@ -20,6 +20,8 @@ projet/
 │   │   ├── PowerManager.cpp          // Gestion PMU, batterie, low power
 │   │   ├── TaskManager.h
 │   │   └── TaskManager.cpp           // Gestion tâches périodiques
+│   │   ├── TaskManagerMonitor.h
+│   │   └── TaskManagerMonitor.cpp           // Gestion tâches périodiques
 │   │
 │   ├── Sensors/
 │   │   ├── DataAcquisition.h
