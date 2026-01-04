@@ -2,6 +2,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <map>
+#include <time.h>
 
 // ─────────────────────────────────────────────
 // Référentiel temporel
@@ -54,6 +56,17 @@ struct DataRecord {
 };
 
 // ─────────────────────────────────────────────
+// Dernière observation exposée au site Web
+// ─────────────────────────────────────────────
+
+struct LastDataForWeb {
+    float     value = 0.0f;     // Dernière valeur mesurée
+    uint32_t  t_rel_ms = 0;     // Instant relatif (millis)
+    time_t    t_utc = 0;        // Instant UTC (si valide)
+    bool      utc_valid = false;
+};
+
+// ─────────────────────────────────────────────
 // DataLogger
 // ─────────────────────────────────────────────
 
@@ -73,19 +86,23 @@ public:
     // Fonctions pour le site web
     // ─────────────────────────────────────────
 
+    static bool hasLastDataForWeb(DataId id, LastDataForWeb& out);
+
     static bool getLastUtcRecord(DataId id, DataRecord& out);
 
-    static String getCurrentValueWithTime(DataId id);
+    static String getCurrentValueWithTime(DataId id);   // legacy
 
     static String getGraphCsv(DataId id, uint32_t daysBack = 30);
 
 private:
+    // ───────────── Temps ─────────────
     static bool     ntpValid;
     static uint32_t ntpOffset;
 
     static uint32_t nowRelative();
     static uint32_t nowUTC();
 
+    // ───────────── Buffers ─────────────
     static const size_t LIVE_SIZE    = 200;
     static const size_t PENDING_SIZE = 2000;
     static const size_t FLUSH_SIZE   = 50;
@@ -98,6 +115,10 @@ private:
     static size_t pendingCount;
     static size_t flushCount;
 
+    // ───────────── Web RAM ─────────────
+    static std::map<DataId, LastDataForWeb> lastDataForWeb;
+
+    // ───────────── Internes ─────────────
     static void addLive(const DataRecord& r);
     static void addPending(const DataRecord& r);
     static void tryFlush();
