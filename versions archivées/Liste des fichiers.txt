@@ -1,3 +1,5 @@
+git ls-files | ForEach-Object { 
+"https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/$_" } > raw_urls.txt
 
 https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/partitions/custom_16MB_2MB_spiffs.csv
 https://raw.githubusercontent.com/rfidenaction/serre-sim7080g/main/platformio.ini

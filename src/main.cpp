@@ -32,7 +32,7 @@ static unsigned long bootTimeMs = 0;
 // -----------------------------------------------------------------------------
 // Temps de fonctionnement (utilisé par l’interface web)
 // -----------------------------------------------------------------------------
-// ⚠️ Correction : symbole unique et global (utilisé par PagePrincipale)
+// ⚠️ Symbole global unique (utilisé par PagePrincipale)
 unsigned long startTime = 0;
 
 // Prototypes des boucles internes
@@ -115,7 +115,7 @@ static void loopInit()
     // Démarrage du TaskManager
     TaskManager::init();
 
-    // --- Tâche EventManager (rythme système surveillé) ---
+    // --- Tâche EventManager ---
     TaskManager::addTask(
         []() {
             EventManager::handle();
@@ -123,17 +123,49 @@ static void loopInit()
         EVENT_MANAGER_PERIOD_MS
     );
 
-    // --- Tâche PowerManager (cycle lent / batterie) ---
+    // -------------------------------------------------------------------------
+    // TÂCHE BATTERIE / ALIMENTATION  (OPTION A VALIDÉE)
+    // - Mise à jour PMU
+    // - Push explicite vers DataLogger
+    // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
+            // Mise à jour des mesures PMU
             PowerManager::update();
+
+            // Tension batterie
+            DataLogger::push(
+                DataType::Battery,
+                DataId::BatteryVoltage,
+                PowerManager::getBatteryVoltage()
+            );
+
+            // Pourcentage batterie
+            DataLogger::push(
+                DataType::Battery,
+                DataId::BatteryPercent,
+                (float)PowerManager::getBatteryPercent()
+            );
+
+            // Batterie en charge (D1.A)
+            DataLogger::push(
+                DataType::Battery,
+                DataId::Charging,
+                PowerManager::isCharging() ? 1.0f : 0.0f
+            );
+
+            // Alimentation externe (E1 : VBUS validé PMU)
+            DataLogger::push(
+                DataType::Battery,
+                DataId::ExternalPower,
+                PowerManager::isExternalPowerPresent() ? 1.0f : 0.0f
+            );
         },
         POWER_MANAGER_UPDATE_INTERVAL_MS
     );
 
     // -------------------------------------------------------------------------
-    // AJOUT : Tâche Wi-Fi (état STA / AP / RSSI → DataLogger)
-    // Même logique et même périodicité que la batterie
+    // TÂCHE WI-FI → DataLogger
     // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
@@ -158,7 +190,7 @@ static void loopInit()
                 WiFiManager::isAPEnabled() ? 1.0f : 0.0f
             );
 
-            // RSSI brut (si connecté)
+            // RSSI
             if (WiFiManager::isSTAConnected()) {
                 DataLogger::push(
                     DataType::System,
@@ -166,7 +198,6 @@ static void loopInit()
                     (float)WiFi.RSSI()
                 );
             } else {
-                // Valeur sentinelle hors connexion
                 DataLogger::push(
                     DataType::System,
                     DataId::WifiRssi,
@@ -174,7 +205,7 @@ static void loopInit()
                 );
             }
         },
-        WIFI_STATUS_UPDATE_INTERVAL_MS   // typiquement 30000 ms
+        WIFI_STATUS_UPDATE_INTERVAL_MS
     );
 
     // Bascule définitive vers la loop de production
