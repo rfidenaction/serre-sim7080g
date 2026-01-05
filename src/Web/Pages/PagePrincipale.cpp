@@ -8,7 +8,7 @@
 extern unsigned long startTime;
 
 // ─────────────────────────────────────────────
-// Uptime (méthode de classe, conforme au .h)
+// Uptime système
 // ─────────────────────────────────────────────
 
 String PagePrincipale::getUptimeString()
@@ -25,16 +25,24 @@ String PagePrincipale::getUptimeString()
 }
 
 // ─────────────────────────────────────────────
-// Accès LastDataForWeb avec fallback
+// Accès sécurisé LastDataForWeb (sans fallback)
 // ─────────────────────────────────────────────
 
-static float getWebValue(DataId id, float fallback = 0.0f)
+static bool getWebData(DataId id, LastDataForWeb& out)
 {
-    LastDataForWeb d;
-    if (DataLogger::hasLastDataForWeb(id, d)) {
-        return d.value;
-    }
-    return fallback;
+    return DataLogger::hasLastDataForWeb(id, out);
+}
+
+// ─────────────────────────────────────────────
+// Formatage date UTC
+// ─────────────────────────────────────────────
+
+static String formatUtc(time_t t)
+{
+    struct tm* tm = localtime(&t);
+    char buf[20];
+    strftime(buf, sizeof(buf), "%d/%m/%y %H:%M", tm);
+    return String(buf);
 }
 
 // ─────────────────────────────────────────────
@@ -44,25 +52,35 @@ static float getWebValue(DataId id, float fallback = 0.0f)
 String PagePrincipale::getHtml()
 {
     // ───────── Batterie ─────────
-    float batteryVoltage = getWebValue(DataId::BatteryVoltage, 3.7f);
-    int   batteryPercent = (int)getWebValue(DataId::BatteryPercent, 50);
-    bool  charging       = getWebValue(DataId::Charging, 0.0f) > 0.5f;
-    bool  externalPower  = getWebValue(DataId::ExternalPower, 0.0f) > 0.5f;
+    LastDataForWeb battV, battPct, chargingD, extPowerD;
 
-    // ───────── Wi-Fi (via DataLogger) ─────────
-    bool staEnabled   = getWebValue(DataId::WifiStaEnabled, 0.0f) > 0.5f;
-    bool staConnected = getWebValue(DataId::WifiStaConnected, 0.0f) > 0.5f;
-    bool apEnabled    = getWebValue(DataId::WifiApEnabled, 0.0f) > 0.5f;
-    int  wifiRssi     = (int)getWebValue(DataId::WifiRssi, -100);
+    bool hasBattV     = getWebData(DataId::BatteryVoltage, battV);
+    bool hasBattPct   = getWebData(DataId::BatteryPercent, battPct);
+    bool hasCharging  = getWebData(DataId::Charging, chargingD);
+    bool hasExtPower  = getWebData(DataId::ExternalPower, extPowerD);
+
+    // ───────── Wi-Fi ─────────
+    LastDataForWeb staEnD, staConnD, apEnD, rssiD;
+    bool hasStaEn   = getWebData(DataId::WifiStaEnabled, staEnD);
+    bool hasStaConn = getWebData(DataId::WifiStaConnected, staConnD);
+    bool hasApEn    = getWebData(DataId::WifiApEnabled, apEnD);
+    bool hasRssi    = getWebData(DataId::WifiRssi, rssiD);
+
+    bool staEnabled   = hasStaEn   && staEnD.value   > 0.5f;
+    bool staConnected = hasStaConn && staConnD.value > 0.5f;
+    bool apEnabled    = hasApEn    && apEnD.value    > 0.5f;
+    int  wifiRssi     = hasRssi    ? (int)rssiD.value : 0;
 
     String staStatus =
+        !hasStaEn ? "" :
         !staEnabled ? "Désactivé" :
-        (staConnected ? "Connecté (" + String(wifiRssi) + " dBm)" :
-                        "Recherche réseau...");
+        (staConnected && hasRssi
+            ? "Connecté (" + String(wifiRssi) + " dBm)"
+            : "Recherche réseau...");
 
-    String apStatus = apEnabled ? "Actif" : "Désactivé";
+    String apStatus = hasApEn ? (apEnabled ? "Actif" : "Désactivé") : "";
 
-    // ───────── Réseau (config fixe) ─────────
+    // ───────── Réseau ─────────
     String staSsid = WIFI_STA_SSID;
     String staIp   = WIFI_STA_IP.toString();
     String apIp    = WIFI_AP_IP.toString();
@@ -80,100 +98,73 @@ body { font-family: Arial; background: #1976d2; color: white; text-align: center
 h1 { background: #0d47a1; padding: 20px; border-radius: 10px; }
 .card { background: rgba(255,255,255,0.2); margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 15px; }
 .value { font-size: 1.8em; font-weight: bold; }
+.time { font-size: 1.1em; margin-top: 8px; opacity: 0.9; }
 .switch { position: relative; display: inline-block; width: 90px; height: 44px; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; inset: 0; background-color: #ccc; transition: .4s; border-radius: 44px; }
 .slider:before { position: absolute; content: ""; height: 36px; width: 36px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background-color: #0d47a1; }
 input:checked + .slider:before { transform: translateX(46px); }
-.subtext { font-size: 1.2em; margin-top: 15px; }
-#graphOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 10; padding: 20px; }
-canvas { background: white; border-radius: 15px; max-width: 90%; }
-.version { margin-top: 10px; font-size: 1.2em; color: #0d47a1; font-weight: bold; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
-function showGraph() {
-  document.getElementById('graphOverlay').style.display = 'block';
-  fetch('/graphdata')
-    .then(r => r.text())
-    .then(data => {
-      let points = data.split(',').map(parseFloat);
-      if (points.length === 1 && isNaN(points[0])) points = [3.0];
-      const count = points.length;
-      const labels = points.map((_, i) => Math.round((count - 1 - i) * 30 / 60) + ' min');
-      const ctx = document.getElementById('chartCanvas').getContext('2d');
-      new Chart(ctx, {
-        type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Tension Batterie (V)', data: points, borderColor: '#0d47a1', backgroundColor: 'rgba(13,71,161,0.2)', fill: true }] },
-        options: { responsive: true, scales: { y: { min: 3.0, max: 4.3 } } }
-      });
-    });
+function formatAge(ms) {
+  let s = Math.floor(ms / 1000);
+  let h = Math.floor(s / 3600); s %= 3600;
+  let m = Math.floor(s / 60);   s %= 60;
+  return "Depuis " + h + "h " + m + "m " + s + "s";
 }
-function hideGraph() { document.getElementById('graphOverlay').style.display = 'none'; }
-setInterval(() => location.reload(), 10000);
+
+setInterval(() => {
+  document.querySelectorAll('[data-age-ms]').forEach(e => {
+    let ms = parseInt(e.dataset.ageMs);
+    ms += 1000;
+    e.dataset.ageMs = ms;
+    e.textContent = formatAge(ms);
+  });
+}, 1000);
 </script>
 </head>
 <body>
 
 <h1>Serre de Marie-Pierre</h1>
+)HTML";
 
-<div class="card">
-  <p>WIFI</p>
-  <p class="value">)HTML" + staStatus + R"HTML(</p>
-  <p class="subtext">SSID : )HTML" + staSsid + R"HTML(<br>IP : )HTML" + staIp + R"HTML(</p>
-  <form action="/wifi-toggle" method="post">
-    <label class="switch">
-      <input type="checkbox" name="state" value="1" )HTML" + String(staEnabled ? "checked" : "") + R"HTML( onchange="this.form.submit()">
-      <span class="slider"></span>
-    </label>
-  </form>
-</div>
+    // ───────── Alimentation externe ─────────
+    if (hasExtPower) {
+        html += "<div class=\"card\"><p>Alim externe</p>";
+        html += "<p class=\"value\">" + String(extPowerD.value > 0.5f ? "Oui" : "Non") + "</p>";
+        if (extPowerD.utc_valid) {
+            html += "<p class=\"time\">" + formatUtc(extPowerD.t_utc) + "</p>";
+        } else {
+            unsigned long age = millis() - extPowerD.t_rel_ms;
+            html += "<p class=\"time\" data-age-ms=\"" + String(age) + "\">Depuis 0s</p>";
+        }
+        html += "</div>";
+    }
 
-<div class="card">
-  <p>ACCES LOCAL</p>
-  <p class="value">)HTML" + apStatus + R"HTML(</p>
-  <p class="subtext">IP : )HTML" + apIp + R"HTML(</p>
-  <form action="/ap-toggle" method="post">
-    <label class="switch">
-      <input type="checkbox" name="state" value="1" )HTML" + String(apEnabled ? "checked" : "") + R"HTML( onchange="this.form.submit()">
-      <span class="slider"></span>
-    </label>
-  </form>
-</div>
+    // ───────── Batterie ─────────
+    if (hasBattV && hasBattPct && hasCharging) {
+        html += "<div class=\"card\"><p>Batterie</p>";
+        html += "<p class=\"value\">" + String(battV.value, 2) + " V (" + String((int)battPct.value) + " %)</p>";
+        html += "<p>" + String(chargingD.value > 0.5f ? "En charge" : "Pas en charge") + "</p>";
+        if (battV.utc_valid) {
+            html += "<p class=\"time\">" + formatUtc(battV.t_utc) + "</p>";
+        } else {
+            unsigned long age = millis() - battV.t_rel_ms;
+            html += "<p class=\"time\" data-age-ms=\"" + String(age) + "\">Depuis 0s</p>";
+        }
+        html += "</div>";
+    }
 
-<div class="card">
-  <p>Statut GSM</p>
-  <p class="value">GSM non actif</p>
-</div>
+    // ───────── Uptime ─────────
+    html += "<div class=\"card\"><p>Durée de fonctionnement</p>";
+    html += "<p class=\"value\">" + getUptimeString() + "</p></div>";
 
-<div class="card">
-  <p>Alim externe</p>
-  <p class="value">)HTML" + String(externalPower ? "Oui" : "Non") + R"HTML(</p>
-</div>
-
-<div class="card" onclick="showGraph()">
-  <p>Batterie</p>
-  <p class="value">)HTML" + String(batteryVoltage, 2) + R"HTML( V ( )HTML" + String(batteryPercent) + R"HTML( % )</p>
-  <p>)HTML" + String(charging ? "En charge" : "Pas en charge") + R"HTML(</p>
-  <p>Cliquez pour graphique tension</p>
-</div>
-
-<div class="card">
-  <p>Durée de fonctionnement</p>
-  <p class="value">)HTML" + getUptimeString() + R"HTML(</p>
-</div>
-
+    html += R"HTML(
 <form action="/reset" method="post">
   <button type="submit">Redémarrer la carte</button>
 </form>
-
-<p class="version">Version 5.71</p>
-
-<div id="graphOverlay">
-  <canvas id="chartCanvas"></canvas><br>
-  <button onclick="hideGraph()">Fermer</button>
-</div>
 
 </body>
 </html>
