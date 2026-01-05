@@ -4,115 +4,150 @@
 #include <WiFi.h>
 #include <time.h>
 
-// -----------------------------------------------------------------------------
-// Constantes temporelles
-// -----------------------------------------------------------------------------
-static constexpr uint32_t BOOT_RETRY_INTERVAL_MS   = 30UL * 1000UL;              // 30 s
-static constexpr uint8_t  BOOT_MAX_ATTEMPTS        = 10;
+// ─────────────────────────────────────────────
+// Paramètres temporels (validés)
+// ─────────────────────────────────────────────
 
-static constexpr uint32_t RESYNC_PERIOD_MS         = 3UL * 60UL * 60UL * 1000UL;  // 3 h
-static constexpr uint32_t UTC_VALIDITY_PERIOD_MS   = 25UL * 60UL * 60UL * 1000UL; // 25 h
+static constexpr uint32_t NETWORK_STABLE_DELAY_MS   = 60UL * 1000UL;        // 1 min
+static constexpr uint32_t BOOT_RETRY_INTERVAL_MS    = 30UL * 1000UL;        // 30 s
+static constexpr uint8_t  BOOT_MAX_ATTEMPTS         = 10;
 
-// -----------------------------------------------------------------------------
+static constexpr uint32_t RESYNC_PERIOD_MS          = 3UL * 60UL * 60UL * 1000UL; // 3 h
+static constexpr uint32_t EXPIRED_RETRY_PERIOD_MS   = 60UL * 60UL * 1000UL;      // 1 h
+static constexpr uint32_t UTC_EXPIRATION_MS         = 25UL * 60UL * 60UL * 1000UL; // 25 h
+
+static constexpr time_t   UTC_MIN_VALID_TIMESTAMP   = 1700000000; // ~2023
+
+// ─────────────────────────────────────────────
 // État interne
-// -----------------------------------------------------------------------------
-bool     ManagerUTC::everSynced     = false;
-uint8_t  ManagerUTC::bootAttempts  = 0;
-uint32_t ManagerUTC::lastAttemptMs = 0;
-uint32_t ManagerUTC::lastSyncMs    = 0;
+// ─────────────────────────────────────────────
 
-uint32_t ManagerUTC::syncRelMs     = 0;
-time_t   ManagerUTC::syncUtc       = 0;
+bool     ManagerUTC::utcValid          = false;
+bool     ManagerUTC::everSynced        = false;
 
-int32_t  ManagerUTC::utcOffset     = 0;
+uint32_t ManagerUTC::networkUpSinceMs  = 0;
+uint32_t ManagerUTC::lastAttemptMs     = 0;
+uint32_t ManagerUTC::lastSyncMs        = 0;
 
-// -----------------------------------------------------------------------------
+uint8_t  ManagerUTC::bootAttempts      = 0;
+
+uint32_t ManagerUTC::syncRelMs          = 0;
+time_t   ManagerUTC::syncUtc            = 0;
+
+// ─────────────────────────────────────────────
 // Initialisation
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
+
 void ManagerUTC::init()
 {
-    everSynced     = false;
-    bootAttempts  = 0;
-    lastAttemptMs = 0;
-    lastSyncMs    = 0;
+    utcValid         = false;
+    everSynced       = false;
 
-    syncRelMs     = 0;
-    syncUtc       = 0;
-    utcOffset     = 0;
+    networkUpSinceMs = 0;
+    lastAttemptMs    = 0;
+    lastSyncMs       = 0;
 
-    // Initialisation NTP (UTC pur)
+    bootAttempts     = 0;
+
+    syncRelMs        = 0;
+    syncUtc          = 0;
+
+    // NTP UTC pur
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 }
 
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
 // Boucle autonome
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
+
 void ManagerUTC::handle()
 {
     const uint32_t nowMs = millis();
 
-    // -------------------------------------------------------------------------
-    // Phase BOOT : tentatives rapides
-    // -------------------------------------------------------------------------
-    if (!everSynced) {
-        if (bootAttempts < BOOT_MAX_ATTEMPTS &&
-            nowMs - lastAttemptMs >= BOOT_RETRY_INTERVAL_MS) {
-
-            lastAttemptMs = nowMs;
-            bootAttempts++;
-
-            if (trySync()) {
-                everSynced  = true;
-                lastSyncMs  = nowMs;
-            }
+    // ─── Gestion état réseau ──────────────────
+    if (WiFi.status() == WL_CONNECTED) {
+        if (networkUpSinceMs == 0) {
+            networkUpSinceMs = nowMs;
+            lastAttemptMs    = 0;
+            bootAttempts     = 0;
         }
+    } else {
+        networkUpSinceMs = 0;
         return;
     }
 
-    // -------------------------------------------------------------------------
-    // Régime permanent : resync lent
-    // -------------------------------------------------------------------------
+    // Réseau pas encore stable
+    if (nowMs - networkUpSinceMs < NETWORK_STABLE_DELAY_MS) {
+        return;
+    }
+
+    // ─── UTC invalide ─────────────────────────
+    if (!utcValid) {
+
+        uint32_t retryInterval =
+            (everSynced || bootAttempts >= BOOT_MAX_ATTEMPTS)
+                ? EXPIRED_RETRY_PERIOD_MS
+                : BOOT_RETRY_INTERVAL_MS;
+
+        if (nowMs - lastAttemptMs >= retryInterval) {
+            lastAttemptMs = nowMs;
+
+            if (!everSynced) {
+                bootAttempts++;
+            }
+
+            if (trySync()) {
+                utcValid   = true;
+                everSynced = true;
+                lastSyncMs = nowMs;
+            }
+        }
+
+        return;
+    }
+
+    // ─── UTC valide ───────────────────────────
     if (nowMs - lastSyncMs >= RESYNC_PERIOD_MS) {
         if (trySync()) {
             lastSyncMs = nowMs;
         }
     }
+
+    // ─── Expiration UTC ───────────────────────
+    if (nowMs - lastSyncMs >= UTC_EXPIRATION_MS) {
+        utcValid = false;
+    }
 }
 
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
 // API publique
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
+
 bool ManagerUTC::isUtcValid()
 {
-    if (!everSynced) return false;
-    return (millis() - lastSyncMs) <= UTC_VALIDITY_PERIOD_MS;
-}
-
-bool ManagerUTC::hasEverSynced()
-{
-    return everSynced;
-}
-
-int32_t ManagerUTC::getUtcOffset()
-{
-    return utcOffset;
+    return utcValid;
 }
 
 time_t ManagerUTC::nowUtc()
 {
-    return static_cast<time_t>(millis() / 1000UL) + utcOffset;
+    if (!utcValid) return 0;
+
+    uint32_t deltaMs = millis() - syncRelMs;
+    return syncUtc + static_cast<time_t>(deltaMs / 1000UL);
 }
 
 time_t ManagerUTC::convertFromRelative(uint32_t t_rel_ms)
 {
-    // Conversion basée sur le point de synchro
-    return syncUtc +
-           static_cast<int32_t>((t_rel_ms - syncRelMs) / 1000UL);
+    if (!utcValid) return 0;
+
+    int32_t deltaMs = static_cast<int32_t>(t_rel_ms - syncRelMs);
+    return syncUtc + static_cast<time_t>(deltaMs / 1000L);
 }
 
-// -----------------------------------------------------------------------------
-// Synchronisation NTP (Wi-Fi)
-// -----------------------------------------------------------------------------
+// ─────────────────────────────────────────────
+// Synchronisation NTP
+// ─────────────────────────────────────────────
+
 bool ManagerUTC::trySync()
 {
     if (WiFi.status() != WL_CONNECTED) {
@@ -122,21 +157,13 @@ bool ManagerUTC::trySync()
     time_t utcNow = 0;
     time(&utcNow);
 
-    // Garde minimale : date crédible (> 2024)
-    if (utcNow < 1700000000) {
+    // Garde anti-faux UTC
+    if (utcNow < UTC_MIN_VALID_TIMESTAMP) {
         return false;
     }
 
-    const uint32_t nowMs = millis();
-
-    // Référence temporelle de synchro
-    syncRelMs = nowMs;
+    syncRelMs = millis();
     syncUtc   = utcNow;
-
-    // Calcul offset UTC ↔ temps machine
-    utcOffset = static_cast<int32_t>(
-        utcNow - static_cast<time_t>(nowMs / 1000UL)
-    );
 
     return true;
 }
