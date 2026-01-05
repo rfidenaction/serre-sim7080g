@@ -3,6 +3,7 @@
 #include "Connectivity/ManagerUTC.h"
 
 #include <SPIFFS.h>
+#include <time.h>
 
 // -----------------------------------------------------------------------------
 // Buffers
@@ -26,7 +27,7 @@ uint32_t DataLogger::nowRelative()
 }
 
 // -----------------------------------------------------------------------------
-// Init
+// Initialisation
 // -----------------------------------------------------------------------------
 void DataLogger::init()
 {
@@ -58,7 +59,7 @@ void DataLogger::push(DataType type, DataId id, float value)
     r.timestamp = nowRelative();
     r.timeBase  = TimeBase::Relative;
 
-    // LIVE : toujours, temps machine
+    // LIVE : toujours
     addLive(r);
 
     bool utcValid = ManagerUTC::isUtcValid();
@@ -73,7 +74,7 @@ void DataLogger::push(DataType type, DataId id, float value)
     // Vue Web
     LastDataForWeb& w = lastDataForWeb[id];
     w.value    = value;
-    w.t_rel_ms = nowRelative();
+    w.t_rel_ms = r.timestamp;
     if (utcValid) {
         w.t_utc     = r.timestamp;
         w.utc_valid = true;
@@ -179,7 +180,7 @@ void DataLogger::flushToFlash(size_t count)
 }
 
 // -----------------------------------------------------------------------------
-// WEB / LECTURE
+// WEB — dernière valeur RAM
 // -----------------------------------------------------------------------------
 bool DataLogger::hasLastDataForWeb(DataId id, LastDataForWeb& out)
 {
@@ -187,4 +188,94 @@ bool DataLogger::hasLastDataForWeb(DataId id, LastDataForWeb& out)
     if (it == lastDataForWeb.end()) return false;
     out = it->second;
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// FLASH — dernière valeur UTC
+// -----------------------------------------------------------------------------
+bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
+{
+    File file = SPIFFS.open("/datalog.csv", FILE_READ);
+    if (!file) return false;
+
+    String line;
+    bool found = false;
+    DataRecord candidate;
+
+    while (file.available()) {
+        line = file.readStringUntil('\n');
+        if (line.length() == 0) continue;
+
+        unsigned long ts;
+        uint8_t typeByte, idByte;
+        float val;
+
+        int parsed = sscanf(line.c_str(), "%lu,%hhu,%hhu,%f",
+                            &ts, &typeByte, &idByte, &val);
+        if (parsed == 4 && idByte == static_cast<uint8_t>(id)) {
+            candidate.timestamp = ts;
+            candidate.timeBase  = TimeBase::UTC;
+            candidate.type      = static_cast<DataType>(typeByte);
+            candidate.id        = id;
+            candidate.value     = val;
+            found = true;
+        }
+    }
+
+    file.close();
+    if (found) out = candidate;
+    return found;
+}
+
+// -----------------------------------------------------------------------------
+// LEGACY
+// -----------------------------------------------------------------------------
+String DataLogger::getCurrentValueWithTime(DataId id)
+{
+    DataRecord r;
+    if (getLastUtcRecord(id, r)) {
+        struct tm* tm = localtime((time_t*)&r.timestamp);
+        char dateStr[20];
+        strftime(dateStr, sizeof(dateStr), "%d/%m/%y %H:%M", tm);
+        return String(r.value, 2) + " (" + String(dateStr) + ")";
+    }
+    return "NC";
+}
+
+// -----------------------------------------------------------------------------
+// GRAPH CSV (FLASH)
+// -----------------------------------------------------------------------------
+String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
+{
+    File file = SPIFFS.open("/datalog.csv", FILE_READ);
+    if (!file) return "";
+
+    uint32_t cutoffTime =
+        ManagerUTC::nowUtc() - (daysBack * 86400UL);
+
+    String csv;
+    bool first = true;
+
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        if (line.length() == 0) continue;
+
+        unsigned long ts;
+        uint8_t typeByte, idByte;
+        float val;
+
+        int parsed = sscanf(line.c_str(), "%lu,%hhu,%hhu,%f",
+                            &ts, &typeByte, &idByte, &val);
+        if (parsed == 4 &&
+            idByte == static_cast<uint8_t>(id) &&
+            ts >= cutoffTime)
+        {
+            if (!first) csv += ",";
+            csv += String(val, 2);
+            first = false;
+        }
+    }
+
+    file.close();
+    return csv;
 }

@@ -8,10 +8,10 @@
 extern unsigned long startTime;
 
 // ─────────────────────────────────────────────
-// Uptime
+// Uptime (méthode de classe, conforme au .h)
 // ─────────────────────────────────────────────
 
-static String getUptimeString()
+String PagePrincipale::getUptimeString()
 {
     unsigned long secs = (millis() - startTime) / 1000;
     int days = secs / 86400; secs %= 86400;
@@ -50,10 +50,10 @@ String PagePrincipale::getHtml()
     bool  externalPower  = getWebValue(DataId::ExternalPower, 0.0f) > 0.5f;
 
     // ───────── Wi-Fi (via DataLogger) ─────────
-    bool staEnabled  = getWebValue(DataId::WifiStaEnabled, 0.0f) > 0.5f;
-    bool staConnected= getWebValue(DataId::WifiStaConnected, 0.0f) > 0.5f;
-    bool apEnabled   = getWebValue(DataId::WifiApEnabled, 0.0f) > 0.5f;
-    int  wifiRssi    = (int)getWebValue(DataId::WifiRssi, -100);
+    bool staEnabled   = getWebValue(DataId::WifiStaEnabled, 0.0f) > 0.5f;
+    bool staConnected = getWebValue(DataId::WifiStaConnected, 0.0f) > 0.5f;
+    bool apEnabled    = getWebValue(DataId::WifiApEnabled, 0.0f) > 0.5f;
+    int  wifiRssi     = (int)getWebValue(DataId::WifiRssi, -100);
 
     String staStatus =
         !staEnabled ? "Désactivé" :
@@ -64,8 +64,8 @@ String PagePrincipale::getHtml()
 
     // ───────── Réseau (config fixe) ─────────
     String staSsid = WIFI_STA_SSID;
-    String staIp = WIFI_STA_IP.toString();
-    String apIp = WIFI_AP_IP.toString();
+    String staIp   = WIFI_STA_IP.toString();
+    String apIp    = WIFI_AP_IP.toString();
 
     // ───────── HTML ─────────
     String html = R"HTML(

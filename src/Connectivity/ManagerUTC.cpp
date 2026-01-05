@@ -7,11 +7,11 @@
 // -----------------------------------------------------------------------------
 // Constantes temporelles
 // -----------------------------------------------------------------------------
-static constexpr uint32_t BOOT_RETRY_INTERVAL_MS   = 30UL * 1000UL;             // 30 s
+static constexpr uint32_t BOOT_RETRY_INTERVAL_MS   = 30UL * 1000UL;              // 30 s
 static constexpr uint8_t  BOOT_MAX_ATTEMPTS        = 10;
 
-static constexpr uint32_t RESYNC_PERIOD_MS         = 3UL * 60UL * 60UL * 1000UL; // 3 h
-static constexpr uint32_t UTC_VALIDITY_PERIOD_MS   = 25UL * 60UL * 60UL * 1000UL;// 25 h
+static constexpr uint32_t RESYNC_PERIOD_MS         = 3UL * 60UL * 60UL * 1000UL;  // 3 h
+static constexpr uint32_t UTC_VALIDITY_PERIOD_MS   = 25UL * 60UL * 60UL * 1000UL; // 25 h
 
 // -----------------------------------------------------------------------------
 // État interne
@@ -20,6 +20,10 @@ bool     ManagerUTC::everSynced     = false;
 uint8_t  ManagerUTC::bootAttempts  = 0;
 uint32_t ManagerUTC::lastAttemptMs = 0;
 uint32_t ManagerUTC::lastSyncMs    = 0;
+
+uint32_t ManagerUTC::syncRelMs     = 0;
+time_t   ManagerUTC::syncUtc       = 0;
+
 int32_t  ManagerUTC::utcOffset     = 0;
 
 // -----------------------------------------------------------------------------
@@ -31,6 +35,9 @@ void ManagerUTC::init()
     bootAttempts  = 0;
     lastAttemptMs = 0;
     lastSyncMs    = 0;
+
+    syncRelMs     = 0;
+    syncUtc       = 0;
     utcOffset     = 0;
 
     // Initialisation NTP (UTC pur)
@@ -56,7 +63,7 @@ void ManagerUTC::handle()
 
             if (trySync()) {
                 everSynced  = true;
-                lastSyncMs = nowMs;
+                lastSyncMs  = nowMs;
             }
         }
         return;
@@ -96,6 +103,13 @@ time_t ManagerUTC::nowUtc()
     return static_cast<time_t>(millis() / 1000UL) + utcOffset;
 }
 
+time_t ManagerUTC::convertFromRelative(uint32_t t_rel_ms)
+{
+    // Conversion basée sur le point de synchro
+    return syncUtc +
+           static_cast<int32_t>((t_rel_ms - syncRelMs) / 1000UL);
+}
+
 // -----------------------------------------------------------------------------
 // Synchronisation NTP (Wi-Fi)
 // -----------------------------------------------------------------------------
@@ -114,6 +128,10 @@ bool ManagerUTC::trySync()
     }
 
     const uint32_t nowMs = millis();
+
+    // Référence temporelle de synchro
+    syncRelMs = nowMs;
+    syncUtc   = utcNow;
 
     // Calcul offset UTC ↔ temps machine
     utcOffset = static_cast<int32_t>(
