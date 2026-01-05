@@ -64,8 +64,8 @@ String PagePrincipale::getHtml()
 
     // ───────── Réseau (config fixe) ─────────
     String staSsid = WIFI_STA_SSID;
-    String staIp   = WIFI_STA_IP;
-    String apIp    = WIFI_AP_IP;
+    String staIp = WIFI_STA_IP.toString();
+    String apIp = WIFI_AP_IP.toString();
 
     // ───────── HTML ─────────
     String html = R"HTML(
