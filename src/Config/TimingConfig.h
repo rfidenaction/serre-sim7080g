@@ -78,7 +78,8 @@
  * Période d’enregistrement des informations WiFi (RSSI, état).
  * Utilisé pour le suivi long terme, pas pour la réactivité immédiate.
  */
-#define WIFI_STATUS_LOG_INTERVAL_MS    60000
+//  #define WIFI_STATUS_LOG_INTERVAL_MS    60000
+#define WIFI_STATUS_UPDATE_INTERVAL_MS 30000UL
 
 // =============================================================================
 // Réservé – extensions futures

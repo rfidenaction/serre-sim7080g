@@ -29,32 +29,18 @@
 
 static unsigned long bootTimeMs = 0;
 
+// -----------------------------------------------------------------------------
+// Temps de fonctionnement (utilisé par l’interface web)
+// -----------------------------------------------------------------------------
+// ⚠️ Correction : symbole unique et global (utilisé par PagePrincipale)
+unsigned long startTime = 0;
+
 // Prototypes des boucles internes
 static void loopInit();
 static void loopRun();
 
 // Pointeur vers la loop active
 static void (*currentLoop)() = loopInit;
-
-// -----------------------------------------------------------------------------
-// Temps de fonctionnement (utilisé par l’interface web)
-// -----------------------------------------------------------------------------
-
-static unsigned long startTimeMs = 0;
-
-String getUptime()
-{
-    unsigned long secs = (millis() - startTimeMs) / 1000;
-
-    int days  = secs / 86400; secs %= 86400;
-    int hours = secs / 3600;  secs %= 3600;
-    int mins  = secs / 60;    secs %= 60;
-
-    return String(days) + "j "
-         + String(hours) + "h "
-         + String(mins) + "m "
-         + String(secs) + "s";
-}
 
 // -----------------------------------------------------------------------------
 // SETUP
@@ -68,8 +54,8 @@ void setup()
     Logger::begin();   // Logger toujours en premier
     Logger::info("Boot système");
 
-    bootTimeMs  = millis();
-    startTimeMs = bootTimeMs;
+    bootTimeMs = millis();
+    startTime  = bootTimeMs;
 
     // --- Système de fichiers ---
     if (!SPIFFS.begin(true)) {
@@ -137,12 +123,58 @@ static void loopInit()
         EVENT_MANAGER_PERIOD_MS
     );
 
-    // --- Tâche PowerManager (cycle lent) ---
+    // --- Tâche PowerManager (cycle lent / batterie) ---
     TaskManager::addTask(
         []() {
             PowerManager::update();
         },
         POWER_MANAGER_UPDATE_INTERVAL_MS
+    );
+
+    // -------------------------------------------------------------------------
+    // AJOUT : Tâche Wi-Fi (état STA / AP / RSSI → DataLogger)
+    // Même logique et même périodicité que la batterie
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            // STA activé
+            DataLogger::push(
+                DataType::System,
+                DataId::WifiStaEnabled,
+                WiFiManager::isSTAEnabled() ? 1.0f : 0.0f
+            );
+
+            // STA connecté
+            DataLogger::push(
+                DataType::System,
+                DataId::WifiStaConnected,
+                WiFiManager::isSTAConnected() ? 1.0f : 0.0f
+            );
+
+            // AP activé
+            DataLogger::push(
+                DataType::System,
+                DataId::WifiApEnabled,
+                WiFiManager::isAPEnabled() ? 1.0f : 0.0f
+            );
+
+            // RSSI brut (si connecté)
+            if (WiFiManager::isSTAConnected()) {
+                DataLogger::push(
+                    DataType::System,
+                    DataId::WifiRssi,
+                    (float)WiFi.RSSI()
+                );
+            } else {
+                // Valeur sentinelle hors connexion
+                DataLogger::push(
+                    DataType::System,
+                    DataId::WifiRssi,
+                    -100.0f
+                );
+            }
+        },
+        WIFI_STATUS_UPDATE_INTERVAL_MS   // typiquement 30000 ms
     );
 
     // Bascule définitive vers la loop de production

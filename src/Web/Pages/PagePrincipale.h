@@ -1,4 +1,4 @@
-// Connectivity/Web/Pages/PagePrincipale.h
+// Web/Pages/PagePrincipale.h
 #pragma once
 
 #include <Arduino.h>
@@ -11,6 +11,5 @@ public:
     static String getHtml();
 
 private:
-    // Fonctions utilitaires internes (déplacées depuis main.cpp)
     static String getUptimeString();
 };

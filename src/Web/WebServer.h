@@ -1,4 +1,4 @@
-// Connectivity/Web/WebServer.h
+// Web/WebServer.h
 #pragma once
 
 #include <Arduino.h>

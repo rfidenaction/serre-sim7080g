@@ -39,9 +39,16 @@ enum class DataId : uint8_t {
     Valve1State,
     Valve2State,
 
+    // --- Wi-Fi ---
+    WifiStaEnabled,
+    WifiStaConnected,
+    WifiApEnabled,
+    WifiRssi,
+
     Boot,
     Error
 };
+
 
 // ─────────────────────────────────────────────
 // Enregistrement

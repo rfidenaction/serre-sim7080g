@@ -1,12 +1,14 @@
 // Web/WebServer.cpp
 #include "Web/WebServer.h"
+
 #include "Web/Pages/PagePrincipale.h"
 #include "Connectivity/WiFiManager.h"
-#include "Core/PowerManager.h"
+#include "Storage/DataLogger.h"
 
 AsyncWebServer WebServer::server(80);
 
-void WebServer::init() {
+void WebServer::init()
+{
     // Configuration des routes
     server.on("/", HTTP_GET, handleRoot);
     server.on("/wifi-toggle", HTTP_POST, handleWifiToggle);
@@ -19,40 +21,64 @@ void WebServer::init() {
     Serial.println("Serveur web démarré");
 }
 
-void WebServer::handleRoot(AsyncWebServerRequest *request) {
-    // Rafraîchissement des données batterie (lecture PMU + ajout à l'historique)
-    PowerManager::update();
+// ─────────────────────────────────────────────
+// Page principale
+// ─────────────────────────────────────────────
 
-    // Génération de la page principale
+void WebServer::handleRoot(AsyncWebServerRequest *request)
+{
+    // IMPORTANT :
+    // Aucune mise à jour de données ici.
+    // Toutes les données (batterie, wifi) sont mises à jour
+    // périodiquement par TaskManager et stockées dans DataLogger.
+
     String html = PagePrincipale::getHtml();
-
-    // Envoi de la page au client
     request->send(200, "text/html", html);
 }
 
-void WebServer::handleWifiToggle(AsyncWebServerRequest *request) {
+// ─────────────────────────────────────────────
+// Commandes Wi-Fi (dérogation assumée)
+// ─────────────────────────────────────────────
+
+void WebServer::handleWifiToggle(AsyncWebServerRequest *request)
+{
     bool newState = request->hasParam("state", true);
     WiFiManager::setSTAEnabled(newState);
+
+    // Comportement existant conservé
     request->redirect("/");
     delay(1000);
     ESP.restart();
 }
 
-void WebServer::handleApToggle(AsyncWebServerRequest *request) {
+void WebServer::handleApToggle(AsyncWebServerRequest *request)
+{
     bool wantOn = request->hasParam("state", true);
     if (!wantOn) {
         WiFiManager::disableAP();
     }
+
     request->redirect("/");
 }
 
-void WebServer::handleGraphData(AsyncWebServerRequest *request) {
-    // Envoi des données d'historique de tension au format CSV pour Chart.js
-    String data = PowerManager::getVoltageHistoryCsv();
-    request->send(200, "text/plain", data);
+// ─────────────────────────────────────────────
+// Graphique batterie (FLASH via DataLogger)
+// ─────────────────────────────────────────────
+
+void WebServer::handleGraphData(AsyncWebServerRequest *request)
+{
+    // Historique tension batterie depuis DataLogger (FLASH)
+    // Utilisation exceptionnelle, déclenchée par l'utilisateur
+    String csv = DataLogger::getGraphCsv(DataId::BatteryVoltage, 30);
+    request->send(200, "text/plain", csv);
 }
 
-void WebServer::handleReset(AsyncWebServerRequest *request) {
+// ─────────────────────────────────────────────
+// Reset système
+// ─────────────────────────────────────────────
+
+void WebServer::handleReset(AsyncWebServerRequest *request)
+{
     request->send(200, "text/plain", "Redémarrage...");
     delay(1000);
     ESP.restart();
