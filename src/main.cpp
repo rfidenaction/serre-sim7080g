@@ -4,12 +4,15 @@
 
 #include <Arduino.h>
 #include <SPIFFS.h>
+#include <time.h>
+#include <stdlib.h>
 
 #include "Config/Config.h"
 #include "Config/TimingConfig.h"
 
 #include "Connectivity/WiFiManager.h"
 #include "Connectivity/CellularManager.h"
+#include "Connectivity/ManagerUTC.h"
 
 #include "Core/PowerManager.h"
 #include "Core/TaskManager.h"
@@ -50,6 +53,12 @@ void setup()
 {
     Serial.begin(115200);
     delay(200);
+
+    // -------------------------------------------------------------------------
+    // Initialisation timezone système (France / Paris)
+    // -------------------------------------------------------------------------
+    setenv("TZ", SYSTEM_TIMEZONE, 1);
+    tzset();
 
     Logger::begin();   // Logger toujours en premier
     Logger::info("Boot système");
@@ -115,7 +124,22 @@ static void loopInit()
     // Démarrage du TaskManager
     TaskManager::init();
 
-    // --- Tâche EventManager ---
+    // -------------------------------------------------------------------------
+    // INITIALISATION UTC / NTP
+    // -------------------------------------------------------------------------
+    ManagerUTC::init();
+
+    // Tâche UTC / NTP (machine d’état autonome)
+    TaskManager::addTask(
+        []() {
+            ManagerUTC::handle();
+        },
+        2000UL   // 2 secondes
+    );
+
+    // -------------------------------------------------------------------------
+    // Tâche EventManager
+    // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
             EventManager::handle();
@@ -124,9 +148,7 @@ static void loopInit()
     );
 
     // -------------------------------------------------------------------------
-    // TÂCHE BATTERIE / ALIMENTATION  (OPTION A VALIDÉE)
-    // - Mise à jour PMU
-    // - Push explicite vers DataLogger
+    // TÂCHE BATTERIE / ALIMENTATION
     // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
@@ -147,14 +169,14 @@ static void loopInit()
                 (float)PowerManager::getBatteryPercent()
             );
 
-            // Batterie en charge (D1.A)
+            // Batterie en charge
             DataLogger::push(
                 DataType::Battery,
                 DataId::Charging,
                 PowerManager::isCharging() ? 1.0f : 0.0f
             );
 
-            // Alimentation externe (E1 : VBUS validé PMU)
+            // Alimentation externe
             DataLogger::push(
                 DataType::Battery,
                 DataId::ExternalPower,
@@ -169,28 +191,24 @@ static void loopInit()
     // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
-            // STA activé
             DataLogger::push(
                 DataType::System,
                 DataId::WifiStaEnabled,
                 WiFiManager::isSTAEnabled() ? 1.0f : 0.0f
             );
 
-            // STA connecté
             DataLogger::push(
                 DataType::System,
                 DataId::WifiStaConnected,
                 WiFiManager::isSTAConnected() ? 1.0f : 0.0f
             );
 
-            // AP activé
             DataLogger::push(
                 DataType::System,
                 DataId::WifiApEnabled,
                 WiFiManager::isAPEnabled() ? 1.0f : 0.0f
             );
 
-            // RSSI
             if (WiFiManager::isSTAConnected()) {
                 DataLogger::push(
                     DataType::System,

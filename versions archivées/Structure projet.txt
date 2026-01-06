@@ -12,6 +12,8 @@ projet/
 │   ├── Connectivity/
 │   │   ├── CellularManager.h
 │   │   ├── CellularManager.cpp       // SIM7080G : modem, data, SMS, GPS
+│   │   ├── ManagerUTC.h
+│   │   └── ManagerUTC.cpp      
 │   │   ├── WiFiManager.h
 │   │   └── WiFiManager.cpp           // WiFi STA + AP
 │   │

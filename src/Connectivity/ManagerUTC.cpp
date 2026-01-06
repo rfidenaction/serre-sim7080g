@@ -3,6 +3,7 @@
 #include "Connectivity/ManagerUTC.h"
 #include <WiFi.h>
 #include <time.h>
+#include "lwip/apps/sntp.h"
 
 // ─────────────────────────────────────────────
 // Paramètres temporels (validés)
@@ -31,8 +32,8 @@ uint32_t ManagerUTC::lastSyncMs        = 0;
 
 uint8_t  ManagerUTC::bootAttempts      = 0;
 
-uint32_t ManagerUTC::syncRelMs          = 0;
-time_t   ManagerUTC::syncUtc            = 0;
+uint32_t ManagerUTC::syncRelMs         = 0;
+time_t   ManagerUTC::syncUtc           = 0;
 
 // ─────────────────────────────────────────────
 // Initialisation
@@ -52,8 +53,9 @@ void ManagerUTC::init()
     syncRelMs        = 0;
     syncUtc          = 0;
 
-    // NTP UTC pur
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    // IMPORTANT :
+    // Pas de configTime() ici → pas de SNTP automatique
+    sntp_stop();
 }
 
 // ─────────────────────────────────────────────
@@ -145,7 +147,7 @@ time_t ManagerUTC::convertFromRelative(uint32_t t_rel_ms)
 }
 
 // ─────────────────────────────────────────────
-// Synchronisation NTP
+// Synchronisation NTP (contrôle total)
 // ─────────────────────────────────────────────
 
 bool ManagerUTC::trySync()
@@ -154,8 +156,15 @@ bool ManagerUTC::trySync()
         return false;
     }
 
+    // Configuration SNTP ponctuelle (UTC pur)
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    sntp_init();
+
     time_t utcNow = 0;
     time(&utcNow);
+
+    // Arrêt immédiat du SNTP (succès ou échec)
+    sntp_stop();
 
     // Garde anti-faux UTC
     if (utcNow < UTC_MIN_VALID_TIMESTAMP) {
