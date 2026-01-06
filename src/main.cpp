@@ -54,13 +54,14 @@ void setup()
     Serial.begin(115200);
     delay(200);
 
+    Logger::begin(Serial, Logger::Level::INFO);
+    Logger::info("Boot système");
+
+
     // -------------------------------------------------------------------------
     // Initialisation timezone système (France / Paris)
     // -------------------------------------------------------------------------
-    
-    Logger::begin();   // Logger toujours en premier
-    Logger::info("Boot système");
-
+        
     bootTimeMs = millis();
     startTime  = bootTimeMs;
 

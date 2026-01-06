@@ -37,7 +37,7 @@ projet/
 │   │
 │   ├── Utils/
 │   │   ├── Logger.h
-│   │   ├── Logger.cpp
+│   │   └── Logger.cpp
 │   │
 │   └── Web/
 │       ├── WebServer.h

@@ -5,6 +5,7 @@
 #include <time.h>
 #include "lwip/apps/sntp.h"
 #include "Config/Config.h"
+#include "Utils/Logger.h"
 
 // ─────────────────────────────────────────────
 // Paramètres temporels (validés)
@@ -174,6 +175,11 @@ bool ManagerUTC::trySync()
             syncRelMs = millis();
             syncUtc   = utcNow;
 
+            Logger::info("[UTC] Synchro NTP réussie après " + 
+                String(bootAttempts) + 
+                " essai(s) au boot (temps : " + 
+                String((millis() - networkUpSinceMs) / 1000) + " s depuis connexion WiFi)");
+            
             return true;
         }
         delay(100);
