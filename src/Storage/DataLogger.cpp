@@ -12,7 +12,10 @@ DataRecord DataLogger::live[LIVE_SIZE];
 DataRecord DataLogger::pending[PENDING_SIZE];
 
 size_t DataLogger::liveIndex    = 0;
-size_t DataLogger::pendingCount = 0;
+
+// Pending FIFO circulaire
+size_t DataLogger::pendingHead  = 0;   // index du plus ancien
+size_t DataLogger::pendingCount = 0;   // nombre d’éléments valides
 
 std::map<DataId, LastDataForWeb> DataLogger::lastDataForWeb;
 
@@ -33,6 +36,9 @@ void DataLogger::init()
 {
     lastFlushMs = millis();
 
+    pendingHead  = 0;
+    pendingCount = 0;
+
     // Reconstruction LastDataForWeb depuis la flash
     for (int id = 0; id < (int)DataId::Count; ++id) {
         DataRecord rec;
@@ -52,33 +58,37 @@ void DataLogger::init()
 // -----------------------------------------------------------------------------
 void DataLogger::push(DataType type, DataId id, float value)
 {
-    DataRecord r;
-    r.type      = type;
-    r.id        = id;
-    r.value     = value;
-    r.timestamp = nowRelative();
-    r.timeBase  = TimeBase::Relative;
+    uint32_t relNow = nowRelative();
+    bool utcValid   = ManagerUTC::isUtcValid();
+    uint32_t utcNow = utcValid ? ManagerUTC::nowUtc() : 0;
 
-    // LIVE : toujours
-    addLive(r);
+    // LIVE (toujours relatif)
+    DataRecord liveRec;
+    liveRec.type      = type;
+    liveRec.id        = id;
+    liveRec.value     = value;
+    liveRec.timestamp = relNow;
+    liveRec.timeBase  = TimeBase::Relative;
+    addLive(liveRec);
 
-    bool utcValid = ManagerUTC::isUtcValid();
-
-    // PENDING : toujours
-    if (utcValid) {
-        r.timestamp = ManagerUTC::nowUtc();
-        r.timeBase  = TimeBase::UTC;
-    }
-    addPending(r);
+    // PENDING
+    DataRecord pendRec;
+    pendRec.type      = type;
+    pendRec.id        = id;
+    pendRec.value     = value;
+    pendRec.timestamp = utcValid ? utcNow : relNow;
+    pendRec.timeBase  = utcValid ? TimeBase::UTC : TimeBase::Relative;
+    addPending(pendRec);
 
     // Vue Web
     LastDataForWeb& w = lastDataForWeb[id];
-    w.value    = value;
-    w.t_rel_ms = r.timestamp;
+    w.value = value;
+
     if (utcValid) {
-        w.t_utc     = r.timestamp;
+        w.t_utc     = utcNow;
         w.utc_valid = true;
     } else {
+        w.t_rel_ms  = relNow;
         w.utc_valid = false;
     }
 }
@@ -93,13 +103,21 @@ void DataLogger::addLive(const DataRecord& r)
 }
 
 // -----------------------------------------------------------------------------
-// PENDING
+// PENDING — FIFO circulaire avec perte FIFO
 // -----------------------------------------------------------------------------
 void DataLogger::addPending(const DataRecord& r)
 {
-    if (pendingCount < PENDING_SIZE) {
-        pending[pendingCount++] = r;
+    // Si plein : on perd le plus ancien (FIFO)
+    if (pendingCount == PENDING_SIZE) {
+        pendingHead = (pendingHead + 1) % PENDING_SIZE;
+        pendingCount--;
     }
+
+    size_t index =
+        (pendingHead + pendingCount) % PENDING_SIZE;
+
+    pending[index] = r;
+    pendingCount++;
 }
 
 // -----------------------------------------------------------------------------
@@ -110,10 +128,11 @@ void DataLogger::handle()
     // Réparation UTC si NTP devenu valide
     if (ManagerUTC::isUtcValid()) {
         for (size_t i = 0; i < pendingCount; ++i) {
-            if (pending[i].timeBase == TimeBase::Relative) {
-                pending[i].timestamp =
-                    ManagerUTC::convertFromRelative(pending[i].timestamp);
-                pending[i].timeBase = TimeBase::UTC;
+            size_t idx = (pendingHead + i) % PENDING_SIZE;
+            if (pending[idx].timeBase == TimeBase::Relative) {
+                pending[idx].timestamp =
+                    ManagerUTC::convertFromRelative(pending[idx].timestamp);
+                pending[idx].timeBase = TimeBase::UTC;
             }
         }
     }
@@ -139,7 +158,8 @@ void DataLogger::tryFlush()
 
     size_t flushable = 0;
     for (size_t i = 0; i < pendingCount; ++i) {
-        if (pending[i].timeBase == TimeBase::UTC) {
+        size_t idx = (pendingHead + i) % PENDING_SIZE;
+        if (pending[idx].timeBase == TimeBase::UTC) {
             flushable++;
         } else {
             break;
@@ -161,7 +181,9 @@ void DataLogger::flushToFlash(size_t count)
     if (!f) return;
 
     for (size_t i = 0; i < count; ++i) {
-        DataRecord& r = pending[i];
+        size_t idx = (pendingHead + i) % PENDING_SIZE;
+        DataRecord& r = pending[idx];
+
         f.printf("%lu,%d,%d,%.3f\n",
                  r.timestamp,
                  (int)r.type,
@@ -170,10 +192,8 @@ void DataLogger::flushToFlash(size_t count)
     }
     f.close();
 
-    // Décalage FIFO
-    for (size_t i = count; i < pendingCount; ++i) {
-        pending[i - count] = pending[i];
-    }
+    pendingHead =
+        (pendingHead + count) % PENDING_SIZE;
     pendingCount -= count;
 
     lastFlushMs = millis();
@@ -228,33 +248,19 @@ bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
 }
 
 // -----------------------------------------------------------------------------
-// LEGACY
-// -----------------------------------------------------------------------------
-String DataLogger::getCurrentValueWithTime(DataId id)
-{
-    DataRecord r;
-    if (getLastUtcRecord(id, r)) {
-        struct tm* tm = localtime((time_t*)&r.timestamp);
-        char dateStr[20];
-        strftime(dateStr, sizeof(dateStr), "%d/%m/%y %H:%M", tm);
-        return String(r.value, 2) + " (" + String(dateStr) + ")";
-    }
-    return "NC";
-}
-
-// -----------------------------------------------------------------------------
-// GRAPH CSV (FLASH)
+// GRAPH CSV (FLASH) — avec timestamp UTC
 // -----------------------------------------------------------------------------
 String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 {
     File file = SPIFFS.open("/datalog.csv", FILE_READ);
     if (!file) return "";
 
-    uint32_t cutoffTime =
-        ManagerUTC::nowUtc() - (daysBack * 86400UL);
+    uint32_t cutoffTime = 0;
+    if (daysBack > 0) {
+        cutoffTime = ManagerUTC::nowUtc() - (daysBack * 86400UL);
+    }
 
-    String csv;
-    bool first = true;
+    String csv = "timestamp,value\n";
 
     while (file.available()) {
         String line = file.readStringUntil('\n');
@@ -266,13 +272,13 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 
         int parsed = sscanf(line.c_str(), "%lu,%hhu,%hhu,%f",
                             &ts, &typeByte, &idByte, &val);
+
         if (parsed == 4 &&
             idByte == static_cast<uint8_t>(id) &&
-            ts >= cutoffTime)
+            (daysBack == 0 || ts >= cutoffTime))
         {
-            if (!first) csv += ",";
-            csv += String(val, 2);
-            first = false;
+            csv += String(ts) + ",";
+            csv += String(val, 2) + "\n";
         }
     }
 

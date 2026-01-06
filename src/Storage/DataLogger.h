@@ -7,6 +7,9 @@
 
 // ─────────────────────────────────────────────
 // Référentiel temporel
+//
+// Ce module ne fournit jamais d’heure locale
+// Toute conversion UTC → locale est externe
 // ─────────────────────────────────────────────
 
 enum class TimeBase : uint8_t {
@@ -66,6 +69,10 @@ struct DataRecord {
 // ─────────────────────────────────────────────
 // Dernière observation exposée au Web
 // ─────────────────────────────────────────────
+// NOTE :
+// - t_rel_ms est valide uniquement si utc_valid == false
+// - si utc_valid == true, seul t_utc doit être utilisé
+// ─────────────────────────────────────────────
 
 struct LastDataForWeb {
     float     value     = 0.0f;
@@ -84,14 +91,14 @@ public:
 
     static void push(DataType type, DataId id, float value);
 
-    static bool getLast(DataId id, DataRecord& out); // live
+    static bool getLast(DataId id, DataRecord& out); // live (si implémenté ailleurs)
 
-    static void handle(); // réparation + flush
+    static void handle(); // réparation UTC + flush
 
     // ───────────── Web ─────────────
     static bool hasLastDataForWeb(DataId id, LastDataForWeb& out);
     static bool getLastUtcRecord(DataId id, DataRecord& out);
-    static String getCurrentValueWithTime(DataId id);
+    static String getCurrentValueWithTime(DataId id);   // LEGACY
     static String getGraphCsv(DataId id, uint32_t daysBack = 30);
 
 private:
@@ -105,11 +112,14 @@ private:
 
     static constexpr uint32_t FLUSH_TIMEOUT_MS = 3600000UL; // 1 heure
 
+    // LIVE (ring buffer simple)
     static DataRecord live[LIVE_SIZE];
-    static DataRecord pending[PENDING_SIZE];
+    static size_t     liveIndex;
 
-    static size_t liveIndex;
-    static size_t pendingCount;
+    // PENDING — FIFO circulaire avec perte FIFO
+    static DataRecord pending[PENDING_SIZE];
+    static size_t     pendingHead;   // index du plus ancien élément
+    static size_t     pendingCount;  // nombre d’éléments valides
 
     // ───────────── Web RAM ─────────────
     static std::map<DataId, LastDataForWeb> lastDataForWeb;
