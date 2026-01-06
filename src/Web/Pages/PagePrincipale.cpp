@@ -185,6 +185,12 @@ setInterval(() => {
       s + 's';
   });
 }, 1000);
+
+// Rechargement automatique de la page pour rafraîchir toutes les données
+setInterval(() => {
+    location.reload();
+}, 10000);  // Toutes les 10 secondes (ajuste à 5000 pour plus rapide si tu veux)
+
 </script>
 </head>
 <body>

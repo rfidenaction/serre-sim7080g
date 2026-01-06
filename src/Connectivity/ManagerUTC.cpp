@@ -53,8 +53,7 @@ void ManagerUTC::init()
     syncRelMs        = 0;
     syncUtc          = 0;
 
-    // IMPORTANT :
-    // Pas de configTime() ici → pas de SNTP automatique
+    // On s'assure que SNTP est arrêté au démarrage
     sntp_stop();
 }
 
@@ -78,7 +77,7 @@ void ManagerUTC::handle()
         return;
     }
 
-    // Réseau pas encore stable
+    // Réseau pas encore stable (1 min)
     if (nowMs - networkUpSinceMs < NETWORK_STABLE_DELAY_MS) {
         return;
     }
@@ -108,14 +107,14 @@ void ManagerUTC::handle()
         return;
     }
 
-    // ─── UTC valide ───────────────────────────
+    // ─── UTC valide : resync toutes les 3h ─────
     if (nowMs - lastSyncMs >= RESYNC_PERIOD_MS) {
         if (trySync()) {
             lastSyncMs = nowMs;
         }
     }
 
-    // ─── Expiration UTC ───────────────────────
+    // ─── Expiration après 25h sans resync ─────
     if (nowMs - lastSyncMs >= UTC_EXPIRATION_MS) {
         utcValid = false;
     }
@@ -147,7 +146,7 @@ time_t ManagerUTC::convertFromRelative(uint32_t t_rel_ms)
 }
 
 // ─────────────────────────────────────────────
-// Synchronisation NTP (contrôle total)
+// Synchronisation NTP contrôlée (low-data)
 // ─────────────────────────────────────────────
 
 bool ManagerUTC::trySync()
@@ -156,23 +155,30 @@ bool ManagerUTC::trySync()
         return false;
     }
 
-    // Configuration SNTP ponctuelle (UTC pur)
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    // Configuration des serveurs NTP
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov", "europe.pool.ntp.org");
+
+    // Démarrage manuel du client SNTP
     sntp_init();
 
+    const uint32_t startMs = millis();
     time_t utcNow = 0;
-    time(&utcNow);
 
-    // Arrêt immédiat du SNTP (succès ou échec)
-    sntp_stop();
+    // On laisse jusqu'à 10 secondes pour recevoir une réponse valide
+    while (millis() - startMs < 10000) {
+        time(&utcNow);
+        if (utcNow >= UTC_MIN_VALID_TIMESTAMP) {
+            sntp_stop();  // Arrêt immédiat pour limiter les émissions
 
-    // Garde anti-faux UTC
-    if (utcNow < UTC_MIN_VALID_TIMESTAMP) {
-        return false;
+            syncRelMs = millis();
+            syncUtc   = utcNow;
+
+            return true;
+        }
+        delay(100);
     }
 
-    syncRelMs = millis();
-    syncUtc   = utcNow;
-
-    return true;
+    // Timeout → arrêt propre
+    sntp_stop();
+    return false;
 }
