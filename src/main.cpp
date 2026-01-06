@@ -57,9 +57,7 @@ void setup()
     // -------------------------------------------------------------------------
     // Initialisation timezone système (France / Paris)
     // -------------------------------------------------------------------------
-    setenv("TZ", SYSTEM_TIMEZONE, 1);
-    tzset();
-
+    
     Logger::begin();   // Logger toujours en premier
     Logger::info("Boot système");
 

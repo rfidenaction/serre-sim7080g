@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <time.h>
 #include "lwip/apps/sntp.h"
+#include "Config/Config.h"
 
 // ─────────────────────────────────────────────
 // Paramètres temporels (validés)
@@ -156,7 +157,7 @@ bool ManagerUTC::trySync()
     }
 
     // Configuration des serveurs NTP
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov", "europe.pool.ntp.org");
+    configTzTime(SYSTEM_TIMEZONE, "pool.ntp.org", "time.nist.gov", "europe.pool.ntp.org");
 
     // Démarrage manuel du client SNTP
     sntp_init();
