@@ -37,28 +37,41 @@ void WebServer::handleRoot(AsyncWebServerRequest *request)
 }
 
 // ─────────────────────────────────────────────
-// Commandes Wi-Fi (dérogation assumée)
+// Commandes Wi-Fi
 // ─────────────────────────────────────────────
 
 void WebServer::handleWifiToggle(AsyncWebServerRequest *request)
 {
+    // CONTRAT HISTORIQUE :
+    // state ABSENT  => STA OFF
+    // state PRÉSENT => STA ON
     bool newState = request->hasParam("state", true);
+
+    // Réponse immédiate (endpoint action-only, UI AJAX)
+    request->send(204);
+
+    // Appliquer et PERSISTER l’état désiré
     WiFiManager::setSTAEnabled(newState);
 
-    // Comportement existant conservé
-    request->redirect("/");
+    // Temps volontairement large pour l’écriture flash
+    // (opération rare, critique, non temps réel)
     delay(1000);
+
+    // Reboot
     ESP.restart();
 }
 
 void WebServer::handleApToggle(AsyncWebServerRequest *request)
 {
     bool wantOn = request->hasParam("state", true);
+
+    // Réponse immédiate (pas de navigation)
+    request->send(204);
+
+    // Désactivation AP temporaire uniquement
     if (!wantOn) {
         WiFiManager::disableAP();
     }
-
-    request->redirect("/");
 }
 
 // ─────────────────────────────────────────────
@@ -80,6 +93,6 @@ void WebServer::handleGraphData(AsyncWebServerRequest *request)
 void WebServer::handleReset(AsyncWebServerRequest *request)
 {
     request->send(200, "text/plain", "Redémarrage...");
-    delay(1000);
+    delay(300);
     ESP.restart();
 }

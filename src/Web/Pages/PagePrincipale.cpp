@@ -107,9 +107,9 @@ String PagePrincipale::getHtml()
     }
 
     // ───────── Wi-Fi ─────────
-    bool staEnabled = false;
+    bool staEnabled   = false;
     bool staConnected = false;
-    bool apEnabled = false;
+    bool apEnabled    = false;
 
     String wifiTime;
 
@@ -120,7 +120,7 @@ String PagePrincipale::getHtml()
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiStaConnected, d)) {
         staConnected = d.value > 0.5f;
-        wifiTime = timeHtml(d); // dernière info réseau fait foi
+        wifiTime = timeHtml(d);
     }
 
     int wifiRssi = 0;
@@ -166,9 +166,24 @@ small { font-size: 0.8em; }
 .slider:before { position: absolute; content: ""; height: 36px; width: 36px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background-color: #0d47a1; }
 input:checked + .slider:before { transform: translateX(46px); }
+input:disabled + .slider { opacity: 0.5; cursor: default; }
 </style>
 
 <script>
+function toggleSta(cb) {
+  const params = new URLSearchParams();
+  if (cb.checked) {
+    params.append('state', '1');
+  }
+  fetch('/wifi-toggle', { method: 'POST', body: params });
+}
+
+function toggleAp(cb) {
+  if (!cb.checked) {
+    fetch('/ap-toggle', { method: 'POST', body: new URLSearchParams() });
+  }
+}
+
 setInterval(() => {
   document.querySelectorAll('.age').forEach(e => {
     let ms = parseInt(e.dataset.ageMs);
@@ -186,11 +201,10 @@ setInterval(() => {
   });
 }, 1000);
 
-// Rechargement automatique de la page pour rafraîchir toutes les données
+// rafraîchissement périodique
 setInterval(() => {
-    location.reload();
-}, 10000);  // Toutes les 10 secondes (ajuste à 5000 pour plus rapide si tu veux)
-
+  location.reload();
+}, 30000);
 </script>
 </head>
 <body>
@@ -202,12 +216,12 @@ setInterval(() => {
   <p class="value">)HTML" + staStatus + R"HTML(</p>
   <p class="subtext">SSID : )HTML" + staSsid + R"HTML(<br>IP : )HTML" + staIp + R"HTML(</p>
   <p><small>)HTML" + wifiTime + R"HTML(</small></p>
-  <form action="/wifi-toggle" method="post">
-    <label class="switch">
-      <input type="checkbox" name="state" value="1" )HTML" + String(staEnabled ? "checked" : "") + R"HTML( onchange="this.form.submit()">
-      <span class="slider"></span>
-    </label>
-  </form>
+  <label class="switch">
+    <input type="checkbox"
+           )HTML" + String(staEnabled ? "checked" : "") + R"HTML(
+           onchange="toggleSta(this)">
+    <span class="slider"></span>
+  </label>
 </div>
 
 <div class="card">
@@ -215,12 +229,13 @@ setInterval(() => {
   <p class="value">)HTML" + apStatus + R"HTML(</p>
   <p class="subtext">IP : )HTML" + apIp + R"HTML(</p>
   <p><small>)HTML" + wifiTime + R"HTML(</small></p>
-  <form action="/ap-toggle" method="post">
-    <label class="switch">
-      <input type="checkbox" name="state" value="1" )HTML" + String(apEnabled ? "checked" : "") + R"HTML( onchange="this.form.submit()">
-      <span class="slider"></span>
-    </label>
-  </form>
+  <label class="switch">
+    <input type="checkbox"
+           )HTML" + String(apEnabled ? "checked" : "") + R"HTML(
+           )HTML" + String(apEnabled ? "" : "disabled") + R"HTML(
+           onchange="toggleAp(this)">
+    <span class="slider"></span>
+  </label>
 </div>
 
 <div class="card">
