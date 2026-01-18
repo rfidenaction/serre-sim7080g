@@ -5,15 +5,15 @@ projet/
 │   │
 │   ├── Config/
 │   │   ├── Config.h                  // Include global – point d'entrée principal (inclut les autres fichiers de config)
-│   │   ├── TimingConfig.h            // TOUS les timings (périodes de mesure, arrosage, envoi données, etc.)
-│   │   ├── HardwareConfig.h          // Configuration matérielle : pins, périphériques, type de carte, etc.
-│   │   └── NetworkConfig.h           // Configuration réseau : SSID, passwords, MQTT broker, serveur NTP, etc.
+│   │   ├── IO-Config.h
+│   │   ├── NetworkConfig.h           // Configuration réseau : SSID, passwords, MQTT broker, serveur NTP, etc.
+│   │   └── TimingConfig.h            // TOUS les timings (périodes de mesure, arrosage, envoi données, etc.)
 │   │
 │   ├── Connectivity/
 │   │   ├── CellularManager.h
 │   │   ├── CellularManager.cpp       // SIM7080G : modem, data, SMS, GPS
 │   │   ├── ManagerUTC.h
-│   │   └── ManagerUTC.cpp      
+│   │   ├── ManagerUTC.cpp      
 │   │   ├── WiFiManager.h
 │   │   └── WiFiManager.cpp           // WiFi STA + AP
 │   │
@@ -21,7 +21,7 @@ projet/
 │   │   ├── PowerManager.h
 │   │   ├── PowerManager.cpp          // Gestion PMU, batterie, low power
 │   │   ├── TaskManager.h
-│   │   └── TaskManager.cpp           // Gestion tâches périodiques
+│   │   ├── TaskManager.cpp           // Gestion tâches périodiques
 │   │   ├── TaskManagerMonitor.h
 │   │   └── TaskManagerMonitor.cpp           // Gestion tâches périodiques
 │   │

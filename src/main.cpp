@@ -1,5 +1,5 @@
 // main.cpp
-// Point d’entrée principal du système
+// Point d'entrée principal du système
 // Rôle : orchestration globale, aucune logique métier
 
 #include <Arduino.h>
@@ -33,7 +33,7 @@
 static unsigned long bootTimeMs = 0;
 
 // -----------------------------------------------------------------------------
-// Temps de fonctionnement (utilisé par l’interface web)
+// Temps de fonctionnement (utilisé par l'interface web)
 // -----------------------------------------------------------------------------
 // ⚠️ Symbole global unique (utilisé par PagePrincipale)
 unsigned long startTime = 0;
@@ -79,7 +79,7 @@ void setup()
 
     // --- Connectivités ---
     WiFiManager::init();        // STA + AP
-    CellularManager::init();    // Non utilisé pour l’instant
+    CellularManager::init();    // Modem SIM7080G Cat-M
 
     // --- Capteurs ---
     DataAcquisition::init();    // Initialisation matérielle uniquement
@@ -128,7 +128,7 @@ static void loopInit()
     // -------------------------------------------------------------------------
     ManagerUTC::init();
 
-    // Tâche UTC / NTP (machine d’état autonome)
+    // Tâche UTC / NTP (machine d'état autonome)
     TaskManager::addTask(
         []() {
             ManagerUTC::handle();
@@ -144,6 +144,16 @@ static void loopInit()
             EventManager::handle();
         },
         EVENT_MANAGER_PERIOD_MS
+    );
+
+    // -------------------------------------------------------------------------
+    // TÂCHE CELLULARMANAGER (machine d'états modem)
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            CellularManager::handle();
+        },
+        2000UL  // 2 secondes
     );
 
     // -------------------------------------------------------------------------
@@ -223,6 +233,28 @@ static void loopInit()
             }
         },
         WIFI_STATUS_UPDATE_INTERVAL_MS
+    );
+
+    // -------------------------------------------------------------------------
+    // TÂCHE CELLULAR → DataLogger
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            // État READY (modem prêt pour SMS)
+            DataLogger::push(
+                DataType::System,
+                DataId::CellularReady,
+                CellularManager::isReady() ? 1.0f : 0.0f
+            );
+            
+            // Qualité signal (0-31 = signal, 99 = unknown/problème)
+            DataLogger::push(
+                DataType::System,
+                DataId::CellularSignal,
+                (float)CellularManager::getSignalQuality()
+            );
+        },
+        30000UL  // 30 secondes (passera à 300000UL en production)
     );
 
     // Bascule définitive vers la loop de production
