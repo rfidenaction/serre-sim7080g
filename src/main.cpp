@@ -12,6 +12,7 @@
 
 #include "Connectivity/WiFiManager.h"
 #include "Connectivity/CellularManager.h"
+#include "Connectivity/SmsManager.h"
 #include "Connectivity/ManagerUTC.h"
 
 #include "Core/PowerManager.h"
@@ -80,6 +81,7 @@ void setup()
     // --- Connectivités ---
     WiFiManager::init();        // STA + AP
     CellularManager::init();    // Modem SIM7080G Cat-M
+    SmsManager::init();         // Gestionnaire SMS
 
     // --- Capteurs ---
     DataAcquisition::init();    // Initialisation matérielle uniquement
@@ -152,6 +154,16 @@ static void loopInit()
     TaskManager::addTask(
         []() {
             CellularManager::handle();
+        },
+        2000UL  // 2 secondes
+    );
+
+    // -------------------------------------------------------------------------
+    // TÂCHE SMSMANAGER (machine d'états SMS)
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            SmsManager::handle();
         },
         2000UL  // 2 secondes
     );

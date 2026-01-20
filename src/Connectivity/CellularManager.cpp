@@ -41,10 +41,13 @@ int CellularManager::signalQuality = 99;
 String CellularManager::operatorName = "";
 IPAddress CellularManager::localIP = IPAddress(0, 0, 0, 0);
 
-// Nouveaux membres statiques
 int CellularManager::subStep = 0;
 int CellularManager::bearerCycleCount = 0;
 unsigned long CellularManager::handleStartTime = 0;
+
+// Gestion ticket modem
+bool CellularManager::modemLocked = false;
+unsigned long CellularManager::modemLockTime = 0;
 
 // Timeouts en nombre de cycles (2s par cycle)
 static constexpr int TIMEOUT_AT_RESPONSE = 10;      // 20s pour réponses AT (+CFUN)
@@ -61,6 +64,14 @@ static TinyGsm modem(Serial1);
 #endif
 
 // -----------------------------------------------------------------------------
+// Accès externe au modem (utilisé par SmsManager)
+// -----------------------------------------------------------------------------
+TinyGsm& getModem()
+{
+    return modem;
+}
+
+// -----------------------------------------------------------------------------
 // Helper : budget temps dépassé ?
 // -----------------------------------------------------------------------------
 bool CellularManager::budgetExceeded()
@@ -70,6 +81,46 @@ bool CellularManager::budgetExceeded()
         return true;
     }
     return false;
+}
+
+// -----------------------------------------------------------------------------
+// Gestion ticket modem
+// -----------------------------------------------------------------------------
+bool CellularManager::isModemAvailable()
+{
+    return ready && !modemLocked;
+}
+
+bool CellularManager::requestModem()
+{
+    // Vérifier timeout si modem déjà locké
+    if (modemLocked) {
+        if ((millis() - modemLockTime) >= MODEM_LOCK_TIMEOUT_MS) {
+            Logger::warn(TAG, "Timeout ticket modem - libération forcée");
+            modemLocked = false;
+        } else {
+            return false;  // Modem occupé
+        }
+    }
+    
+    // Vérifier disponibilité
+    if (!ready) {
+        return false;  // Modem pas prêt
+    }
+    
+    // Accorder le ticket
+    modemLocked = true;
+    modemLockTime = millis();
+    Logger::debug(TAG, "Ticket modem accordé");
+    return true;
+}
+
+void CellularManager::freeModem()
+{
+    if (modemLocked) {
+        modemLocked = false;
+        Logger::debug(TAG, "Ticket modem libéré");
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -99,13 +150,22 @@ void CellularManager::init()
 // -----------------------------------------------------------------------------
 void CellularManager::handle()
 {
-    handleStartTime = millis();  // Démarrer le chrono budget
+    handleStartTime = millis();
+    
+    // Si modem locké par un client, ne rien faire (sauf vérifier timeout)
+    if (modemLocked) {
+        if ((millis() - modemLockTime) >= MODEM_LOCK_TIMEOUT_MS) {
+            Logger::warn(TAG, "Timeout ticket modem - libération forcée");
+            modemLocked = false;
+        }
+        return;
+    }
+    
     stateCycleCount++;
     
     switch (currentState) {
         
         case State::IDLE:
-            // Attente, ne fait rien
             break;
             
         case State::MODEM_INIT:
@@ -143,7 +203,7 @@ void CellularManager::changeState(State newState, const char* stateName)
     currentState = newState;
     lastStateChange = millis();
     stateCycleCount = 0;
-    subStep = 0;  // Reset sous-état
+    subStep = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -153,16 +213,15 @@ void CellularManager::handleModemInit()
 {
     // subStep :
     // 0 = test AT normal
-    // 1 = power-cycle : pin LOW, attendre prochain cycle
-    // 2 = power-cycle : pin HIGH, attendre prochain cycle
+    // 1 = power-cycle : pin LOW
+    // 2 = power-cycle : pin HIGH
     // 3 = power-cycle : pin LOW, fin séquence
     
-    // Première fois dans cet état
     if (stateCycleCount == 1 && subStep == 0) {
         Logger::info(TAG, "Démarrage modem...");
     }
     
-    // --- Power-cycle en cours ---
+    // Power-cycle en cours
     if (subStep > 0) {
         switch (subStep) {
             case 1:
@@ -181,12 +240,11 @@ void CellularManager::handleModemInit()
                 digitalWrite(MODEM_PWR_PIN, LOW);
                 Logger::debug(TAG, "Power-cycle: terminé");
                 subStep = 0;
-                stateCycleCount = 0;  // Reset pour reprendre les tentatives AT
+                stateCycleCount = 0;
                 return;
         }
     }
     
-    // --- Mode normal : test AT ---
     if (budgetExceeded()) return;
     
     if (modem.testAT(1000)) {
@@ -195,10 +253,9 @@ void CellularManager::handleModemInit()
         return;
     }
     
-    // Si pas de réponse après MODEM_RETRY_MAX cycles, déclencher power-cycle
     if (stateCycleCount >= MODEM_RETRY_MAX) {
         Logger::info(TAG, "Démarrage power-cycle modem...");
-        subStep = 1;  // Prochain cycle = première étape du power-cycle
+        subStep = 1;
     } else {
         Logger::debug(TAG, "Attente modem... (" + String(stateCycleCount) + "/" + String(MODEM_RETRY_MAX) + ")");
     }
@@ -222,7 +279,7 @@ void CellularManager::handleSimCheck()
         case 0:
             Logger::info(TAG, "Vérification carte SIM...");
             if (modem.getSimStatus() != SIM_READY) {
-                Logger::error(TAG, "❌ Carte SIM non détectée !");
+                Logger::error(TAG, "Carte SIM non détectée");
                 changeState(State::ERROR, "ERROR");
                 return;
             }
@@ -232,21 +289,21 @@ void CellularManager::handleSimCheck()
             
         case 1: {
             String ccid = modem.getSimCCID();
-            Logger::debug(TAG, "CCID: " + ccid);
+            Logger::info(TAG, "CCID: " + ccid);
             subStep = 2;
             return;
         }
-        
+            
         case 2: {
             String imei = modem.getIMEI();
-            Logger::debug(TAG, "IMEI: " + imei);
+            Logger::info(TAG, "IMEI: " + imei);
             subStep = 3;
             return;
         }
-        
+            
         case 3: {
             String imsi = modem.getIMSI();
-            Logger::debug(TAG, "IMSI: " + imsi);
+            Logger::info(TAG, "IMSI: " + imsi);
             changeState(State::NETWORK_CONFIG, "NETWORK_CONFIG");
             return;
         }
@@ -259,19 +316,19 @@ void CellularManager::handleSimCheck()
 void CellularManager::handleNetworkConfig()
 {
     // subStep :
-    // 0  = envoi +CFUN=0
-    // 1  = attente réponse +CFUN=0
-    // 2  = setNetworkMode
-    // 3  = getNetworkMode + log
-    // 4  = setPreferredMode
-    // 5  = getPreferredMode + log
-    // 6  = envoi +CGDCONT (APN)
-    // 7  = attente réponse +CGDCONT
-    // 8  = envoi +CNCFG (APN)
-    // 9  = attente réponse +CNCFG
-    // 10 = envoi +CFUN=1
-    // 11 = attente réponse +CFUN=1
-    // 12 = activation LED réseau (CNETLIGHT)
+    // 0 = désactivation RF (AT+CFUN=0)
+    // 1 = attente réponse CFUN=0
+    // 2 = configuration mode réseau
+    // 3 = attente réponse mode réseau
+    // 4 = configuration préférence
+    // 5 = attente réponse préférence
+    // 6 = configuration APN (CGDCONT)
+    // 7 = attente réponse CGDCONT
+    // 8 = configuration APN (CNCFG)
+    // 9 = attente réponse CNCFG
+    // 10 = activation RF (AT+CFUN=1)
+    // 11 = attente réponse CFUN=1
+    // 12 = activation LED réseau + transition
     
     if (budgetExceeded()) return;
     
@@ -279,9 +336,10 @@ void CellularManager::handleNetworkConfig()
         
         case 0:
             Logger::info(TAG, "Configuration réseau...");
+            Logger::debug(TAG, "Désactivation RF...");
             modem.sendAT("+CFUN=0");
             subStep = 1;
-            stateCycleCount = 0;  // Reset pour timeout
+            stateCycleCount = 0;
             return;
             
         case 1:
@@ -295,32 +353,44 @@ void CellularManager::handleNetworkConfig()
             return;
             
         case 2:
-            modem.setNetworkMode(2);
+            Logger::debug(TAG, "Configuration Cat-M...");
+            modem.setNetworkMode(38);
+            modem.setPreferredMode(1);
+            modem.sendAT("+CNMP=38");
             subStep = 3;
+            stateCycleCount = 0;
             return;
             
-        case 3: {
-            uint8_t mode = modem.getNetworkMode();
-            Logger::debug(TAG, "Mode réseau: " + String(mode));
-            subStep = 4;
+        case 3:
+            if (modem.waitResponse(1000) == 1) {
+                subStep = 4;
+            } else if (stateCycleCount >= TIMEOUT_AT_RESPONSE) {
+                Logger::error(TAG, "Erreur configuration mode réseau");
+                changeState(State::ERROR, "ERROR");
+            }
             return;
-        }
             
         case 4:
-            modem.setPreferredMode(MODEM_CATM_NBIOT);
+            modem.sendAT("+CMNB=1");
             subStep = 5;
+            stateCycleCount = 0;
             return;
             
-        case 5: {
-            uint8_t pref = modem.getPreferredMode();
-            Logger::info(TAG, "Mode préféré: " + String(pref));
-            subStep = 6;
+        case 5:
+            if (modem.waitResponse(1000) == 1) {
+                Logger::info(TAG, "✅ Cat-M configuré");
+                subStep = 6;
+            } else if (stateCycleCount >= TIMEOUT_AT_RESPONSE) {
+                Logger::error(TAG, "Erreur configuration préférence");
+                changeState(State::ERROR, "ERROR");
+            }
             return;
-        }
             
         case 6:
+            Logger::debug(TAG, "Configuration APN...");
             modem.sendAT("+CGDCONT=1,\"IP\",\"", CELLULAR_APN, "\"");
             subStep = 7;
+            stateCycleCount = 0;
             return;
             
         case 7:
@@ -336,6 +406,7 @@ void CellularManager::handleNetworkConfig()
         case 8:
             modem.sendAT("+CNCFG=0,1,\"", CELLULAR_APN, "\"");
             subStep = 9;
+            stateCycleCount = 0;
             return;
             
         case 9:
@@ -343,6 +414,7 @@ void CellularManager::handleNetworkConfig()
                 Logger::debug(TAG, "APN CNCFG OK");
                 Logger::info(TAG, "APN configuré: " + String(CELLULAR_APN));
                 subStep = 10;
+                stateCycleCount = 0;
             } else if (stateCycleCount >= TIMEOUT_AT_RESPONSE) {
                 Logger::error(TAG, "Erreur configuration APN (CNCFG)");
                 changeState(State::ERROR, "ERROR");
@@ -352,13 +424,14 @@ void CellularManager::handleNetworkConfig()
         case 10:
             modem.sendAT("+CFUN=1");
             subStep = 11;
-            stateCycleCount = 0;  // Reset pour timeout
+            stateCycleCount = 0;
             return;
             
         case 11:
             if (modem.waitResponse(1000) == 1) {
-                Logger::debug(TAG, "RF activée");
+                Logger::info(TAG, "RF activée");
                 subStep = 12;
+                stateCycleCount = 0;
             } else if (stateCycleCount >= TIMEOUT_AT_RESPONSE) {
                 Logger::error(TAG, "Timeout activation RF");
                 changeState(State::ERROR, "ERROR");
@@ -384,7 +457,7 @@ void CellularManager::handleNetworkWait()
     // subStep :
     // 0 = vérification statut réseau
     // 1 = envoi +CNACT=0,1 (activation bearer)
-    // 2 = attente réponse +CNACT (jusqu'à TIMEOUT_BEARER cycles)
+    // 2 = attente réponse +CNACT
     // 3 = vérification GPRS
     // 4 = récupération opérateur
     // 5 = récupération IP
@@ -403,14 +476,12 @@ void CellularManager::handleNetworkWait()
                 return;
             }
             
-            // Timeout global enregistrement réseau
             if (stateCycleCount >= TIMEOUT_NETWORK_WAIT) {
                 Logger::error(TAG, "Timeout enregistrement réseau");
                 changeState(State::ERROR, "ERROR");
                 return;
             }
             
-            // Toujours en recherche
             Logger::debug(TAG, "Recherche réseau... (" + String(stateCycleCount) + "/" + String(TIMEOUT_NETWORK_WAIT) + ") - " + String(register_info[s]));
             return;
         }
@@ -419,7 +490,7 @@ void CellularManager::handleNetworkWait()
             Logger::debug(TAG, "Activation bearer...");
             modem.sendAT("+CNACT=0,1");
             subStep = 2;
-            bearerCycleCount = 0;  // Compteur dédié
+            bearerCycleCount = 0;
             return;
             
         case 2: {
@@ -461,6 +532,7 @@ void CellularManager::handleNetworkWait()
             signalQuality = modem.getSignalQuality();
             Logger::info(TAG, "Signal: " + String(signalQuality) + "/31");
             ready = true;
+            Logger::info(TAG, "✅ Modem prêt");
             changeState(State::CONNECTED, "CONNECTED");
             return;
     }
@@ -491,7 +563,7 @@ void CellularManager::handleConnected()
                 changeState(State::NETWORK_WAIT, "NETWORK_WAIT");
                 return;
             }
-            subStep = 0;  // Reboucle pour le prochain cycle
+            subStep = 0;
             return;
     }
 }
@@ -501,16 +573,14 @@ void CellularManager::handleConnected()
 // -----------------------------------------------------------------------------
 void CellularManager::handleError()
 {
-    // Log une seule fois
     if (stateCycleCount == 1) {
         Logger::error(TAG, "Modem en erreur - attente intervention");
     }
     ready = false;
-    // Reste en ERROR, nécessite redémarrage manuel
 }
 
 // -----------------------------------------------------------------------------
-// Getters (lecture passive)
+// Getters
 // -----------------------------------------------------------------------------
 bool CellularManager::isReady()
 {

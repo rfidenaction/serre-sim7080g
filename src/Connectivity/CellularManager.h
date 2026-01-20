@@ -10,6 +10,10 @@ public:
     static void init();      // Initialisation matérielle uniquement
     static void handle();    // Machine d'états (appelée toutes les 2s)
     
+    // Gestion accès modem (système de ticket)
+    static bool requestModem();   // Demande accès → true si accordé
+    static void freeModem();      // Libère l'accès après usage
+    
     // Getters (lecture passive pour DataLogger)
     static bool isReady();              // Modem connecté et prêt
     static int getSignalQuality();      // 0-31 = signal, 99 = unknown
@@ -39,10 +43,17 @@ private:
     static int bearerCycleCount;
     
     // Durée maximale autorisée par appel de handle()
-    // Garde-fou pour garantir du CPU aux autres tâches (WiFi, etc.)
     static constexpr unsigned long BUDGET_MS = 100;
     static unsigned long handleStartTime;
     static bool budgetExceeded();
+    
+    // Gestion ticket modem
+    static bool modemLocked;              // true = ticket donné à un client
+    static unsigned long modemLockTime;   // Timestamp du verrouillage
+    static constexpr unsigned long MODEM_LOCK_TIMEOUT_MS = 100000;  // 100 secondes
+    
+    // Vérification interne disponibilité
+    static bool isModemAvailable();
     
     // Handlers des états
     static void handleModemInit();
