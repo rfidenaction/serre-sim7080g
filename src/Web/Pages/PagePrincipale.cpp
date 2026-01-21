@@ -10,6 +10,32 @@
 extern unsigned long startTime;
 
 // ─────────────────────────────────────────────
+// Helpers sécurisés pour extraire les valeurs du variant
+// ─────────────────────────────────────────────
+
+// Extrait un float du variant de manière sécurisée (pas de crash)
+static float getFloat(const LastDataForWeb& d, float defaultValue = 0.0f)
+{
+    if (std::holds_alternative<float>(d.value)) {
+        return std::get<float>(d.value);
+    }
+    // Erreur : le variant contient un String, pas un float
+    Serial.println("[PagePrincipale] WARNING: Tentative d'extraire float depuis un String!");
+    return defaultValue;
+}
+
+// Extrait un String du variant de manière sécurisée (pas de crash)
+static String getString(const LastDataForWeb& d, const String& defaultValue = "")
+{
+    if (std::holds_alternative<String>(d.value)) {
+        return std::get<String>(d.value);
+    }
+    // Erreur : le variant contient un float, pas un String
+    Serial.println("[PagePrincipale] WARNING: Tentative d'extraire String depuis un float!");
+    return defaultValue;
+}
+
+// ─────────────────────────────────────────────
 // Uptime
 // ─────────────────────────────────────────────
 
@@ -80,12 +106,12 @@ String PagePrincipale::getHtml()
     int percent   = -1;
 
     if (DataLogger::hasLastDataForWeb(DataId::BatteryVoltage, d)) {
-        voltage = d.value;
+        voltage = getFloat(d);  // Safe : retourne 0.0f si erreur
         batteryTime = timeHtml(d);
     }
 
     if (DataLogger::hasLastDataForWeb(DataId::BatteryPercent, d)) {
-        percent = (int)d.value;
+        percent = (int)getFloat(d);  // Safe : retourne 0 si erreur
     }
 
     batteryLine = String(voltage, 2) + " V";
@@ -95,14 +121,14 @@ String PagePrincipale::getHtml()
 
     String charging;
     if (DataLogger::hasLastDataForWeb(DataId::Charging, d)) {
-        charging = d.value > 0.5f ? "En charge" : "Pas en charge";
+        charging = getFloat(d) > 0.5f ? "En charge" : "Pas en charge";  // Safe
     }
 
     // ───────── Alimentation externe ─────────
     String externalPower;
     String externalPowerTime;
     if (DataLogger::hasLastDataForWeb(DataId::ExternalPower, d)) {
-        externalPower = d.value > 0.5f ? "Oui" : "Non";
+        externalPower = getFloat(d) > 0.5f ? "Oui" : "Non";  // Safe
         externalPowerTime = timeHtml(d);
     }
 
@@ -114,21 +140,21 @@ String PagePrincipale::getHtml()
     String wifiTime;
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiStaEnabled, d)) {
-        staEnabled = d.value > 0.5f;
+        staEnabled = getFloat(d) > 0.5f;  // Safe
         wifiTime = timeHtml(d);
     }
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiStaConnected, d)) {
-        staConnected = d.value > 0.5f;
+        staConnected = getFloat(d) > 0.5f;  // Safe
         wifiTime = timeHtml(d);
     }
 
     int wifiRssi = 0;
     bool hasRssi = DataLogger::hasLastDataForWeb(DataId::WifiRssi, d);
-    if (hasRssi) wifiRssi = (int)d.value;
+    if (hasRssi) wifiRssi = (int)getFloat(d);  // Safe
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiApEnabled, d)) {
-        apEnabled = d.value > 0.5f;
+        apEnabled = getFloat(d) > 0.5f;  // Safe
         wifiTime = timeHtml(d);
     }
 

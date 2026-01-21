@@ -4,11 +4,12 @@
 #include <Arduino.h>
 #include <map>
 #include <time.h>
+#include <variant>  // C++17 pour gérer float et String
 
 // ─────────────────────────────────────────────
 // Référentiel temporel
 //
-// Ce module ne fournit jamais d’heure locale
+// Ce module ne fournit jamais d'heure locale
 // Toute conversion UTC → locale est externe
 // ─────────────────────────────────────────────
 
@@ -51,6 +52,8 @@ enum class DataId : uint8_t {
     // Cellular
     CellularReady,
     CellularSignal,
+    CellularOperator,
+    CellularIP,
 
     Boot,
     Error,
@@ -67,19 +70,20 @@ struct DataRecord {
     TimeBase timeBase;
     DataType type;
     DataId   id;
-    float    value;
+    std::variant<float, String> value;  // Peut être float OU String
 };
 
 // ─────────────────────────────────────────────
 // Dernière observation exposée au Web
 // ─────────────────────────────────────────────
 // NOTE :
+// - value peut contenir soit un float, soit un String (std::variant)
 // - t_rel_ms est valide uniquement si utc_valid == false
 // - si utc_valid == true, seul t_utc doit être utilisé
 // ─────────────────────────────────────────────
 
 struct LastDataForWeb {
-    float     value     = 0.0f;
+    std::variant<float, String> value;  // Peut être float OU String
     uint32_t  t_rel_ms  = 0;
     time_t    t_utc     = 0;
     bool      utc_valid = false;
@@ -93,7 +97,11 @@ class DataLogger {
 public:
     static void init();
 
+    // Push pour valeurs numériques (float)
     static void push(DataType type, DataId id, float value);
+    
+    // Push pour valeurs textuelles (String)
+    static void push(DataType type, DataId id, const String& textValue);
 
     static bool getLast(DataId id, DataRecord& out); // live (si implémenté ailleurs)
 
@@ -123,7 +131,7 @@ private:
     // PENDING — FIFO circulaire avec perte FIFO
     static DataRecord pending[PENDING_SIZE];
     static size_t     pendingHead;   // index du plus ancien élément
-    static size_t     pendingCount;  // nombre d’éléments valides
+    static size_t     pendingCount;  // nombre d'éléments valides
 
     // ───────────── Web RAM ─────────────
     static std::map<DataId, LastDataForWeb> lastDataForWeb;

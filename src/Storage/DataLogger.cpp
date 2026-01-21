@@ -15,11 +15,68 @@ size_t DataLogger::liveIndex    = 0;
 
 // Pending FIFO circulaire
 size_t DataLogger::pendingHead  = 0;   // index du plus ancien
-size_t DataLogger::pendingCount = 0;   // nombre d’éléments valides
+size_t DataLogger::pendingCount = 0;   // nombre d'éléments valides
 
 std::map<DataId, LastDataForWeb> DataLogger::lastDataForWeb;
 
 static unsigned long lastFlushMs = 0;
+
+// -----------------------------------------------------------------------------
+// Helpers CSV - Échappement et parsing
+// -----------------------------------------------------------------------------
+
+// Échappe une String pour CSV : ajoute guillemets et double les guillemets internes
+static String escapeCSV(const String& text)
+{
+    String escaped = "\"";  // Commence avec un guillemet
+    
+    for (size_t i = 0; i < text.length(); i++) {
+        char c = text.charAt(i);
+        if (c == '"') {
+            escaped += "\"\"";  // Double les guillemets
+        } else {
+            escaped += c;
+        }
+    }
+    
+    escaped += "\"";  // Termine avec un guillemet
+    return escaped;
+}
+
+// Parse une String CSV (entre guillemets) et dé-échappe
+// Entrée: "texte" ou "texte ""quoted""" 
+// Sortie: texte ou texte "quoted"
+static String unescapeCSV(const String& text)
+{
+    String unescaped = "";
+    
+    // Vérifier que la String commence et finit par des guillemets
+    if (text.length() < 2 || text.charAt(0) != '"' || text.charAt(text.length() - 1) != '"') {
+        // Pas de guillemets = format invalide, retourner tel quel
+        Serial.println("[DataLogger] Warning: CSV String sans guillemets: " + text);
+        return text;
+    }
+    
+    // Parser le contenu entre les guillemets
+    for (size_t i = 1; i < text.length() - 1; i++) {
+        char c = text.charAt(i);
+        if (c == '"') {
+            // Vérifier si c'est un guillemet doublé
+            if (i + 1 < text.length() - 1 && text.charAt(i + 1) == '"') {
+                unescaped += '"';  // Ajouter un seul guillemet
+                i++;  // Sauter le deuxième guillemet
+            } else {
+                // Guillemet seul = erreur de format
+                Serial.println("[DataLogger] Warning: Guillemet non échappé dans CSV");
+                unescaped += c;
+            }
+        } else {
+            unescaped += c;
+        }
+    }
+    
+    return unescaped;
+}
 
 // -----------------------------------------------------------------------------
 // Temps
@@ -44,7 +101,7 @@ void DataLogger::init()
         DataRecord rec;
         if (getLastUtcRecord((DataId)id, rec)) {
             LastDataForWeb e;
-            e.value     = rec.value;
+            e.value     = rec.value;  // Copie le variant (float OU String)
             e.t_rel_ms  = 0;
             e.t_utc     = rec.timestamp;
             e.utc_valid = true;
@@ -54,7 +111,7 @@ void DataLogger::init()
 }
 
 // -----------------------------------------------------------------------------
-// PUSH — point d’entrée unique
+// PUSH — point d'entrée pour valeurs NUMÉRIQUES (float)
 // -----------------------------------------------------------------------------
 void DataLogger::push(DataType type, DataId id, float value)
 {
@@ -66,7 +123,7 @@ void DataLogger::push(DataType type, DataId id, float value)
     DataRecord liveRec;
     liveRec.type      = type;
     liveRec.id        = id;
-    liveRec.value     = value;
+    liveRec.value     = value;  // std::variant accepte float
     liveRec.timestamp = relNow;
     liveRec.timeBase  = TimeBase::Relative;
     addLive(liveRec);
@@ -75,14 +132,54 @@ void DataLogger::push(DataType type, DataId id, float value)
     DataRecord pendRec;
     pendRec.type      = type;
     pendRec.id        = id;
-    pendRec.value     = value;
+    pendRec.value     = value;  // std::variant accepte float
     pendRec.timestamp = utcValid ? utcNow : relNow;
     pendRec.timeBase  = utcValid ? TimeBase::UTC : TimeBase::Relative;
     addPending(pendRec);
 
     // Vue Web
     LastDataForWeb& w = lastDataForWeb[id];
-    w.value = value;
+    w.value = value;  // std::variant accepte float
+
+    if (utcValid) {
+        w.t_utc     = utcNow;
+        w.utc_valid = true;
+    } else {
+        w.t_rel_ms  = relNow;
+        w.utc_valid = false;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// PUSH — point d'entrée pour valeurs TEXTUELLES (String)
+// -----------------------------------------------------------------------------
+void DataLogger::push(DataType type, DataId id, const String& textValue)
+{
+    uint32_t relNow = nowRelative();
+    bool utcValid   = ManagerUTC::isUtcValid();
+    uint32_t utcNow = utcValid ? ManagerUTC::nowUtc() : 0;
+
+    // LIVE (toujours relatif)
+    DataRecord liveRec;
+    liveRec.type      = type;
+    liveRec.id        = id;
+    liveRec.value     = textValue;  // std::variant accepte String
+    liveRec.timestamp = relNow;
+    liveRec.timeBase  = TimeBase::Relative;
+    addLive(liveRec);
+
+    // PENDING
+    DataRecord pendRec;
+    pendRec.type      = type;
+    pendRec.id        = id;
+    pendRec.value     = textValue;  // std::variant accepte String
+    pendRec.timestamp = utcValid ? utcNow : relNow;
+    pendRec.timeBase  = utcValid ? TimeBase::UTC : TimeBase::Relative;
+    addPending(pendRec);
+
+    // Vue Web - stocke le String dans le variant
+    LastDataForWeb& w = lastDataForWeb[id];
+    w.value = textValue;  // std::variant accepte String
 
     if (utcValid) {
         w.t_utc     = utcNow;
@@ -174,21 +271,40 @@ void DataLogger::tryFlush()
 
 // -----------------------------------------------------------------------------
 // FLUSH TO FLASH
+// Format CSV : timestamp,type,id,valueType,value
+// valueType = 0 pour float, 1 pour String
 // -----------------------------------------------------------------------------
 void DataLogger::flushToFlash(size_t count)
 {
     File f = SPIFFS.open("/datalog.csv", FILE_APPEND);
-    if (!f) return;
+    if (!f) {
+        Serial.println("[DataLogger] Error: Cannot open /datalog.csv for writing");
+        return;
+    }
 
     for (size_t i = 0; i < count; ++i) {
         size_t idx = (pendingHead + i) % PENDING_SIZE;
         DataRecord& r = pending[idx];
 
-        f.printf("%lu,%d,%d,%.3f\n",
-                 r.timestamp,
-                 (int)r.type,
-                 (int)r.id,
-                 r.value);
+        // Déterminer le type de valeur et l'écrire
+        if (std::holds_alternative<float>(r.value)) {
+            // Valeur numérique
+            float val = std::get<float>(r.value);
+            f.printf("%lu,%d,%d,0,%.3f\n",
+                     r.timestamp,
+                     (int)r.type,
+                     (int)r.id,
+                     val);
+        } else {
+            // Valeur textuelle - ÉCHAPPER avec guillemets CSV
+            String txt = std::get<String>(r.value);
+            String escaped = escapeCSV(txt);
+            f.printf("%lu,%d,%d,1,%s\n",
+                     r.timestamp,
+                     (int)r.type,
+                     (int)r.id,
+                     escaped.c_str());
+        }
     }
     f.close();
 
@@ -212,11 +328,15 @@ bool DataLogger::hasLastDataForWeb(DataId id, LastDataForWeb& out)
 
 // -----------------------------------------------------------------------------
 // FLASH — dernière valeur UTC
+// Format CSV : timestamp,type,id,valueType,value
 // -----------------------------------------------------------------------------
 bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
 {
     File file = SPIFFS.open("/datalog.csv", FILE_READ);
-    if (!file) return false;
+    if (!file) {
+        Serial.println("[DataLogger] Warning: Cannot open /datalog.csv for reading");
+        return false;
+    }
 
     String line;
     bool found = false;
@@ -227,33 +347,63 @@ bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
         if (line.length() == 0) continue;
 
         unsigned long ts;
-        uint8_t typeByte, idByte;
-        float val;
-
-        int parsed = sscanf(line.c_str(), "%lu,%hhu,%hhu,%f",
-                            &ts, &typeByte, &idByte, &val);
-        if (parsed == 4 && idByte == static_cast<uint8_t>(id)) {
+        uint8_t typeByte, idByte, valueType;
+        
+        // Parser la ligne selon le format : timestamp,type,id,valueType,value
+        int firstComma = line.indexOf(',');
+        int secondComma = line.indexOf(',', firstComma + 1);
+        int thirdComma = line.indexOf(',', secondComma + 1);
+        int fourthComma = line.indexOf(',', thirdComma + 1);
+        
+        if (firstComma == -1 || secondComma == -1 || thirdComma == -1 || fourthComma == -1) {
+            Serial.println("[DataLogger] Warning: Ligne CSV mal formatée (virgules manquantes): " + line);
+            continue; // Format invalide
+        }
+        
+        ts = line.substring(0, firstComma).toInt();
+        typeByte = line.substring(firstComma + 1, secondComma).toInt();
+        idByte = line.substring(secondComma + 1, thirdComma).toInt();
+        valueType = line.substring(thirdComma + 1, fourthComma).toInt();
+        String valueStr = line.substring(fourthComma + 1);
+        
+        if (idByte == static_cast<uint8_t>(id)) {
             candidate.timestamp = ts;
             candidate.timeBase  = TimeBase::UTC;
             candidate.type      = static_cast<DataType>(typeByte);
             candidate.id        = id;
-            candidate.value     = val;
+            
+            if (valueType == 0) {
+                // Valeur numérique
+                candidate.value = valueStr.toFloat();
+            } else {
+                // Valeur textuelle - DÉSECHAPPER
+                valueStr.trim(); // Enlever les espaces/retours à la ligne
+                candidate.value = unescapeCSV(valueStr);
+            }
             found = true;
         }
     }
 
     file.close();
-    if (found) out = candidate;
+    if (found) {
+        out = candidate;
+    } else {
+        Serial.println("[DataLogger] Info: Aucun enregistrement trouvé pour DataId " + String((int)id));
+    }
     return found;
 }
 
 // -----------------------------------------------------------------------------
 // GRAPH CSV (FLASH) — avec timestamp UTC
+// ATTENTION : Ne fonctionne que pour les valeurs NUMÉRIQUES
 // -----------------------------------------------------------------------------
 String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 {
     File file = SPIFFS.open("/datalog.csv", FILE_READ);
-    if (!file) return "";
+    if (!file) {
+        Serial.println("[DataLogger] Warning: Cannot open /datalog.csv for reading (getGraphCsv)");
+        return "";
+    }
 
     uint32_t cutoffTime = 0;
     if (daysBack > 0) {
@@ -261,27 +411,51 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
     }
 
     String csv = "timestamp,value\n";
+    int validLines = 0;
+    int invalidLines = 0;
 
     while (file.available()) {
         String line = file.readStringUntil('\n');
         if (line.length() == 0) continue;
 
         unsigned long ts;
-        uint8_t typeByte, idByte;
-        float val;
+        uint8_t typeByte, idByte, valueType;
+        
+        // Parser la ligne
+        int firstComma = line.indexOf(',');
+        int secondComma = line.indexOf(',', firstComma + 1);
+        int thirdComma = line.indexOf(',', secondComma + 1);
+        int fourthComma = line.indexOf(',', thirdComma + 1);
+        
+        if (firstComma == -1 || secondComma == -1 || thirdComma == -1 || fourthComma == -1) {
+            invalidLines++;
+            continue;
+        }
+        
+        ts = line.substring(0, firstComma).toInt();
+        typeByte = line.substring(firstComma + 1, secondComma).toInt();
+        idByte = line.substring(secondComma + 1, thirdComma).toInt();
+        valueType = line.substring(thirdComma + 1, fourthComma).toInt();
+        String valueStr = line.substring(fourthComma + 1);
 
-        int parsed = sscanf(line.c_str(), "%lu,%hhu,%hhu,%f",
-                            &ts, &typeByte, &idByte, &val);
-
-        if (parsed == 4 &&
-            idByte == static_cast<uint8_t>(id) &&
+        // Ne traiter que les valeurs numériques (valueType == 0)
+        if (idByte == static_cast<uint8_t>(id) &&
+            valueType == 0 &&
             (daysBack == 0 || ts >= cutoffTime))
         {
+            float val = valueStr.toFloat();
             csv += String(ts) + ",";
             csv += String(val, 2) + "\n";
+            validLines++;
         }
     }
 
     file.close();
+    
+    if (invalidLines > 0) {
+        Serial.printf("[DataLogger] getGraphCsv: %d lignes invalides ignorées\n", invalidLines);
+    }
+    Serial.printf("[DataLogger] getGraphCsv: %d lignes valides pour DataId %d\n", validLines, (int)id);
+    
     return csv;
 }
