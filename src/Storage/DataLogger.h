@@ -90,6 +90,18 @@ struct LastDataForWeb {
 };
 
 // ─────────────────────────────────────────────
+// Statistiques fichier de logs
+// ─────────────────────────────────────────────
+
+struct LogFileStats {
+    bool exists;          // Le fichier existe-t-il ?
+    size_t sizeBytes;     // Taille en bytes
+    float sizeMB;         // Taille en MB
+    float percentFull;    // Pourcentage utilisé
+    float totalGB;        // Taille partition (fixe : 1.9 Go)
+};
+
+// ─────────────────────────────────────────────
 // DataLogger
 // ─────────────────────────────────────────────
 
@@ -106,12 +118,18 @@ public:
     static bool getLast(DataId id, DataRecord& out); // live (si implémenté ailleurs)
 
     static void handle(); // réparation UTC + flush
+    
+    // Gestion de l'historique
+    static void clearHistory(); // Supprime l'historique flash et réinitialise les buffers
 
     // ───────────── Web ─────────────
     static bool hasLastDataForWeb(DataId id, LastDataForWeb& out);
     static bool getLastUtcRecord(DataId id, DataRecord& out);
     static String getCurrentValueWithTime(DataId id);   // LEGACY
     static String getGraphCsv(DataId id, uint32_t daysBack = 30);
+    
+    // Statistiques du fichier de logs
+    static LogFileStats getLogFileStats();
 
 private:
     // ───────────── Temps ─────────────

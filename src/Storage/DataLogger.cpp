@@ -316,6 +316,30 @@ void DataLogger::flushToFlash(size_t count)
 }
 
 // -----------------------------------------------------------------------------
+// CLEAR HISTORY - Suppression historique et réinitialisation
+// -----------------------------------------------------------------------------
+void DataLogger::clearHistory()
+{
+    Serial.println("[DataLogger] Suppression de l'historique...");
+    
+    // Supprimer le fichier CSV
+    if (SPIFFS.remove("/datalog.csv")) {
+        Serial.println("[DataLogger] Fichier /datalog.csv supprimé avec succès");
+    } else {
+        Serial.println("[DataLogger] Warning: Impossible de supprimer /datalog.csv (peut-être inexistant)");
+    }
+    
+    // Réinitialiser les buffers PENDING (Option A : on garde lastDataForWeb)
+    pendingHead = 0;
+    pendingCount = 0;
+    
+    // Note: lastDataForWeb n'est PAS vidé - on garde les dernières valeurs en RAM
+    // pour continuer à afficher les données actuelles sur l'interface web
+    
+    Serial.println("[DataLogger] Buffers réinitialisés. Historique vidé.");
+}
+
+// -----------------------------------------------------------------------------
 // WEB — dernière valeur RAM
 // -----------------------------------------------------------------------------
 bool DataLogger::hasLastDataForWeb(DataId id, LastDataForWeb& out)
@@ -327,6 +351,40 @@ bool DataLogger::hasLastDataForWeb(DataId id, LastDataForWeb& out)
 }
 
 // -----------------------------------------------------------------------------
+// STATISTIQUES FICHIER DE LOGS
+// -----------------------------------------------------------------------------
+LogFileStats DataLogger::getLogFileStats()
+{
+    LogFileStats stats;
+    stats.exists = false;
+    stats.sizeBytes = 0;
+    stats.sizeMB = 0.0f;
+    stats.percentFull = 0.0f;
+    stats.totalGB = 1.9f;  // Valeur fixe : partition SPIFFS de 1.9 Go
+    
+    File file = SPIFFS.open("/datalog.csv", FILE_READ);
+    if (!file) {
+        // Fichier n'existe pas - c'est normal
+        return stats;
+    }
+    
+    stats.exists = true;
+    stats.sizeBytes = file.size();
+    stats.sizeMB = stats.sizeBytes / (1024.0f * 1024.0f);
+    
+    file.close();
+    
+    // Calcul du pourcentage sur 1.9 Go
+    const float TOTAL_STORAGE_BYTES = stats.totalGB * 1024.0f * 1024.0f * 1024.0f;
+    stats.percentFull = (stats.sizeBytes / TOTAL_STORAGE_BYTES) * 100.0f;
+    
+    Serial.printf("[DataLogger] Stats fichier: %.2f MB (%.3f%% de %.2f Go)\n", 
+                  stats.sizeMB, stats.percentFull, stats.totalGB);
+    
+    return stats;
+}
+
+// -----------------------------------------------------------------------------
 // FLASH — dernière valeur UTC
 // Format CSV : timestamp,type,id,valueType,value
 // -----------------------------------------------------------------------------
@@ -334,7 +392,7 @@ bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
 {
     File file = SPIFFS.open("/datalog.csv", FILE_READ);
     if (!file) {
-        Serial.println("[DataLogger] Warning: Cannot open /datalog.csv for reading");
+        Serial.println("[DataLogger] ERROR: Cannot open /datalog.csv for reading");
         return false;
     }
 
@@ -387,9 +445,8 @@ bool DataLogger::getLastUtcRecord(DataId id, DataRecord& out)
     file.close();
     if (found) {
         out = candidate;
-    } else {
-        Serial.println("[DataLogger] Info: Aucun enregistrement trouvé pour DataId " + String((int)id));
     }
+    // PAS de log si pas trouvé - c'est normal
     return found;
 }
 
@@ -401,7 +458,7 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 {
     File file = SPIFFS.open("/datalog.csv", FILE_READ);
     if (!file) {
-        Serial.println("[DataLogger] Warning: Cannot open /datalog.csv for reading (getGraphCsv)");
+        Serial.println("[DataLogger] ERROR: Cannot open /datalog.csv for reading (getGraphCsv)");
         return "";
     }
 
@@ -412,7 +469,6 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 
     String csv = "timestamp,value\n";
     int validLines = 0;
-    int invalidLines = 0;
 
     while (file.available()) {
         String line = file.readStringUntil('\n');
@@ -428,8 +484,7 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
         int fourthComma = line.indexOf(',', thirdComma + 1);
         
         if (firstComma == -1 || secondComma == -1 || thirdComma == -1 || fourthComma == -1) {
-            invalidLines++;
-            continue;
+            continue; // Format invalide - ignorer silencieusement
         }
         
         ts = line.substring(0, firstComma).toInt();
@@ -452,10 +507,7 @@ String DataLogger::getGraphCsv(DataId id, uint32_t daysBack)
 
     file.close();
     
-    if (invalidLines > 0) {
-        Serial.printf("[DataLogger] getGraphCsv: %d lignes invalides ignorées\n", invalidLines);
-    }
-    Serial.printf("[DataLogger] getGraphCsv: %d lignes valides pour DataId %d\n", validLines, (int)id);
+    Serial.printf("[DataLogger] getGraphCsv: %d lignes pour DataId %d\n", validLines, (int)id);
     
     return csv;
 }

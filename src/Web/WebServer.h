@@ -24,4 +24,9 @@ private:
     static void handleApToggle(AsyncWebServerRequest *request);
     static void handleGraphData(AsyncWebServerRequest *request);
     static void handleReset(AsyncWebServerRequest *request);
+    
+    // Handlers pour la gestion des logs
+    static void handleLogs(AsyncWebServerRequest *request);
+    static void handleLogsDownload(AsyncWebServerRequest *request);
+    static void handleLogsClear(AsyncWebServerRequest *request);
 };

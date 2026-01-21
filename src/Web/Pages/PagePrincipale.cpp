@@ -287,6 +287,13 @@ setInterval(() => {
   <p class="value">)HTML" + getUptimeString() + R"HTML(</p>
 </div>
 
+<div class="card" style="margin-top: 40px;">
+  <a href="/logs" style="color: white; text-decoration: none; display: block;">
+    <p style="font-size: 1.2em;">🗂️ Gestion des Logs</p>
+    <p style="font-size: 0.9em;">Télécharger ou supprimer les données</p>
+  </a>
+</div>
+
 </body>
 </html>
 )HTML";
