@@ -1,74 +1,129 @@
 // src/Connectivity/CellularManager.h
-#pragma once
+// Version corrigée avec états POWERING_ON et POWERING_OFF
+
+#ifndef CELLULARMANAGER_H
+#define CELLULARMANAGER_H
+
 #include <Arduino.h>
 #include <TinyGsmClient.h>
-#include "Config/IO-Config.h"
+#include <Preferences.h>
 
-class CellularManager {
+class CellularManager
+{
 public:
-    // Cycle de vie
-    static void init();      // Initialisation matérielle uniquement
-    static void handle();    // Machine d'états (appelée toutes les 2s)
-    
-    // Gestion accès modem (système de ticket)
-    static bool requestModem();   // Demande accès → true si accordé
-    static void freeModem();      // Libère l'accès après usage
-    
-    // Getters (lecture passive pour DataLogger)
-    static bool isReady();              // Modem connecté et prêt
-    static int getSignalQuality();      // 0-31 = signal, 99 = unknown
-    static String getOperator();        // Nom opérateur
-    static IPAddress getLocalIP();      // IP locale
-    
-private:
-    enum class State {
-        IDLE,
-        MODEM_INIT,
-        SIM_CHECK,
-        NETWORK_CONFIG,
-        NETWORK_WAIT,
-        CONNECTED,
-        ERROR
-    };
-    
+    // -----------------------------------------------------------------------------
     // Machine d'états
+    // -----------------------------------------------------------------------------
+    enum class State {
+        IDLE,             // Modem éteint
+        POWERING_ON,      // Séquence allumage PWRKEY (non-bloquante)
+        POWERING_OFF,     // Séquence extinction PWRKEY (non-bloquante)
+        MODEM_INIT,       // Test AT + power-cycle si nécessaire
+        SIM_CHECK,        // Vérification SIM + lecture CCID/IMEI/IMSI
+        NETWORK_CONFIG,   // Configuration Cat-M + APN
+        NETWORK_WAIT,     // Attente enregistrement réseau + activation bearer
+        CONNECTED,        // Modem connecté et opérationnel
+        ERROR             // Erreur avec recovery automatique
+    };
+
+    // -----------------------------------------------------------------------------
+    // Budget temps par appel de handle()
+    // -----------------------------------------------------------------------------
+    static constexpr unsigned long BUDGET_MS = 100;  // 100 ms max par cycle
+
+    // -----------------------------------------------------------------------------
+    // Timeout ticket modem
+    // -----------------------------------------------------------------------------
+    static constexpr unsigned long MODEM_LOCK_TIMEOUT_MS = 30000;  // 30s
+
+    // -----------------------------------------------------------------------------
+    // Lifecycle
+    // -----------------------------------------------------------------------------
+    static void init();
+    static void handle();  // Appelée toutes les 2 secondes par TaskManager
+
+    // -----------------------------------------------------------------------------
+    // Contrôle ON/OFF (persistant)
+    // -----------------------------------------------------------------------------
+    static void setEnabled(bool enabled);  // Active/désactive le GSM (sauvegardé en NVS)
+    static bool isEnabled();               // État activé/désactivé
+    static bool isConnected();             // État connecté (réseau + IP)
+
+    // -----------------------------------------------------------------------------
+    // Gestion ticket modem (pour SmsManager, etc.)
+    // -----------------------------------------------------------------------------
+    static bool isModemAvailable();  // Modem prêt ET disponible
+    static bool requestModem();      // Demander accès exclusif
+    static void freeModem();         // Libérer accès
+
+    // -----------------------------------------------------------------------------
+    // Informations réseau
+    // -----------------------------------------------------------------------------
+    static int getSignalQuality();       // 0-31 (99 = inconnu)
+    static String getOperator();         // Nom opérateur
+    static IPAddress getLocalIP();       // IP locale
+
+    // -----------------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------------
+    static int signalTodBm(int signal);  // Conversion CSQ → dBm
+    static String getStatus();           // Status formaté pour UI
+
+private:
+    // -----------------------------------------------------------------------------
+    // État de la machine
+    // -----------------------------------------------------------------------------
     static State currentState;
     static unsigned long lastStateChange;
     static int stateCycleCount;
-    
-    // Sous-états pour séquences multi-cycles
+    static bool enabled;          // Préférence persistante ON/OFF
+    static bool connected;        // État connecté
+    static int signalQuality;
+    static String operatorName;
+    static IPAddress localIP;
+
+    // -----------------------------------------------------------------------------
+    // Sous-états et compteurs
+    // -----------------------------------------------------------------------------
     static int subStep;
-    
-    // Compteur dédié pour timeout bearer (NETWORK_WAIT)
     static int bearerCycleCount;
-    
-    // Durée maximale autorisée par appel de handle()
-    static constexpr unsigned long BUDGET_MS = 100;
     static unsigned long handleStartTime;
-    static bool budgetExceeded();
-    
+    static unsigned long powerStepStartMs;  // Timestamp pour séquences PWRKEY
+
+    // -----------------------------------------------------------------------------
     // Gestion ticket modem
-    static bool modemLocked;              // true = ticket donné à un client
-    static unsigned long modemLockTime;   // Timestamp du verrouillage
-    static constexpr unsigned long MODEM_LOCK_TIMEOUT_MS = 100000;  // 100 secondes
-    
-    // Vérification interne disponibilité
-    static bool isModemAvailable();
-    
-    // Handlers des états
+    // -----------------------------------------------------------------------------
+    static bool modemLocked;
+    static unsigned long modemLockTime;
+
+    // -----------------------------------------------------------------------------
+    // Préférences NVS
+    // -----------------------------------------------------------------------------
+    static Preferences preferences;
+
+    // -----------------------------------------------------------------------------
+    // Handlers d'états
+    // -----------------------------------------------------------------------------
+    static void handlePoweringOn();
+    static void handlePoweringOff();
     static void handleModemInit();
     static void handleSimCheck();
     static void handleNetworkConfig();
     static void handleNetworkWait();
     static void handleConnected();
     static void handleError();
-    
-    // Helper pour changement d'état
+
+    // -----------------------------------------------------------------------------
+    // Helpers internes
+    // -----------------------------------------------------------------------------
     static void changeState(State newState, const char* stateName);
-    
-    // Variables d'état (mises à jour par handle())
-    static bool ready;
-    static int signalQuality;
-    static String operatorName;
-    static IPAddress localIP;
+    static bool budgetExceeded();
+    static void loadPreferences();
 };
+
+// -----------------------------------------------------------------------------
+// Accès externe au modem TinyGSM (pour SmsManager)
+// -----------------------------------------------------------------------------
+extern TinyGsm& getModem();
+
+#endif // CELLULARMANAGER_H

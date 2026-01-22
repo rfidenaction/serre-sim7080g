@@ -6,8 +6,12 @@
 #include "Connectivity/WiFiManager.h"
 #include "Connectivity/CellularManager.h"
 #include "Storage/DataLogger.h"
+#include "Utils/Logger.h"
 
 #include <SPIFFS.h>
+
+// Tag pour logs
+static const char* TAG = "WebServer";
 
 AsyncWebServer WebServer::server(80);
 
@@ -17,22 +21,24 @@ void WebServer::init()
     server.on("/", HTTP_GET, handleRoot);
     server.on("/wifi-toggle", HTTP_POST, handleWifiToggle);
     server.on("/ap-toggle", HTTP_POST, handleApToggle);
+    server.on("/gsm-toggle", HTTP_POST, handleGsmToggle);
     server.on("/graphdata", HTTP_GET, handleGraphData);
     server.on("/reset", HTTP_POST, handleReset);
     
     // Routes de gestion des logs
-    server.on("/logs", HTTP_GET, handleLogs);
+    // ⚠️ CORRECTION : routes spécifiques AVANT /logs
     server.on("/logs/download", HTTP_GET, handleLogsDownload);
     server.on("/logs/clear", HTTP_POST, handleLogsClear);
+    server.on("/logs", HTTP_GET, handleLogs);
 
     // Démarrage du serveur asynchrone
     server.begin();
-    Serial.println("Serveur web démarré");
+    Logger::info(TAG, "Serveur web démarré");
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Page principale
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WebServer::handleRoot(AsyncWebServerRequest *request)
 {
@@ -45,9 +51,9 @@ void WebServer::handleRoot(AsyncWebServerRequest *request)
     request->send(200, "text/html", html);
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Commandes Wi-Fi
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WebServer::handleWifiToggle(AsyncWebServerRequest *request)
 {
@@ -83,9 +89,27 @@ void WebServer::handleApToggle(AsyncWebServerRequest *request)
     }
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Commande GSM (même pattern que Wi-Fi STA)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void WebServer::handleGsmToggle(AsyncWebServerRequest *request)
+{
+    // CONTRAT (identique à WiFi STA) :
+    // state ABSENT  => GSM OFF
+    // state PRÉSENT => GSM ON
+    bool newState = request->hasParam("state", true);
+
+    // Réponse immédiate (endpoint action-only, UI AJAX)
+    request->send(204);
+
+    // Appliquer et PERSISTER l'état désiré (provoque reboot)
+    CellularManager::setEnabled(newState);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Graphique batterie (FLASH via DataLogger)
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WebServer::handleGraphData(AsyncWebServerRequest *request)
 {
@@ -95,9 +119,9 @@ void WebServer::handleGraphData(AsyncWebServerRequest *request)
     request->send(200, "text/plain", csv);
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Reset système
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WebServer::handleReset(AsyncWebServerRequest *request)
 {
@@ -106,14 +130,14 @@ void WebServer::handleReset(AsyncWebServerRequest *request)
     ESP.restart();
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Gestion des logs
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 void WebServer::handleLogs(AsyncWebServerRequest *request)
 {
-    // Vérifier si le GSM est actif
-    bool gsmActive = CellularManager::isReady();
+    // Vérifier si le GSM est connecté (pour avertissement téléchargement)
+    bool gsmActive = CellularManager::isConnected();
     
     // Récupérer les statistiques du fichier de logs
     LogFileStats stats = DataLogger::getLogFileStats();
@@ -125,41 +149,35 @@ void WebServer::handleLogs(AsyncWebServerRequest *request)
 
 void WebServer::handleLogsDownload(AsyncWebServerRequest *request)
 {
-    // Vérification : GSM ne doit PAS être actif
-    if (CellularManager::isReady()) {
+    // Vérification : GSM ne doit PAS être connecté (éviter coût data)
+    if (CellularManager::isConnected()) {
         request->send(403, "text/plain", 
             "Erreur : GSM actif. Désactivez le GSM avant de télécharger les logs.");
-        Serial.println("[WebServer] Tentative de téléchargement logs avec GSM actif - BLOQUÉ");
+        Logger::warn(TAG, "Téléchargement logs avec GSM actif - BLOQUÉ");
         return;
     }
     
     // Vérifier que le fichier existe
     if (!SPIFFS.exists("/datalog.csv")) {
         request->send(404, "text/plain", "Aucune donnée disponible");
-        Serial.println("[WebServer] Téléchargement logs demandé mais fichier inexistant");
+        Logger::warn(TAG, "Téléchargement logs demandé mais fichier inexistant");
         return;
     }
     
     // Envoyer le fichier directement (pas de chargement en RAM)
     // Le paramètre 'true' force le téléchargement (Content-Disposition: attachment)
     request->send(SPIFFS, "/datalog.csv", "text/csv", true);
-    Serial.println("[WebServer] Téléchargement logs démarré");
+    Logger::info(TAG, "Téléchargement logs démarré");
 }
 
 void WebServer::handleLogsClear(AsyncWebServerRequest *request)
 {
-    // Vérification : GSM ne doit PAS être actif
-    if (CellularManager::isReady()) {
-        request->send(403, "text/plain", 
-            "Erreur : GSM actif. Désactivez le GSM avant de supprimer les logs.");
-        Serial.println("[WebServer] Tentative de suppression logs avec GSM actif - BLOQUÉ");
-        return;
-    }
+    // Pas de vérification GSM : la suppression est une opération locale
     
     // Supprimer l'historique
     DataLogger::clearHistory();
     
     // Réponse de succès
     request->send(200, "text/plain", "Historique supprimé avec succès");
-    Serial.println("[WebServer] Logs supprimés par l'utilisateur");
+    Logger::info(TAG, "Logs supprimés par l'utilisateur");
 }

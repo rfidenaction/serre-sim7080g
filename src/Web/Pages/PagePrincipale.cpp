@@ -3,8 +3,12 @@
 
 #include "Storage/DataLogger.h"
 #include "Config/NetworkConfig.h"
+#include "Utils/Logger.h"
 
 #include <time.h>
+
+// Tag pour logs
+static const char* TAG = "PagePrincipale";
 
 // startTime est déclaré dans main.cpp
 extern unsigned long startTime;
@@ -20,7 +24,7 @@ static float getFloat(const LastDataForWeb& d, float defaultValue = 0.0f)
         return std::get<float>(d.value);
     }
     // Erreur : le variant contient un String, pas un float
-    Serial.println("[PagePrincipale] WARNING: Tentative d'extraire float depuis un String!");
+    Logger::warn(TAG, "Tentative d'extraire float depuis un String!");
     return defaultValue;
 }
 
@@ -31,8 +35,19 @@ static String getString(const LastDataForWeb& d, const String& defaultValue = ""
         return std::get<String>(d.value);
     }
     // Erreur : le variant contient un float, pas un String
-    Serial.println("[PagePrincipale] WARNING: Tentative d'extraire String depuis un float!");
+    Logger::warn(TAG, "Tentative d'extraire String depuis un float!");
     return defaultValue;
+}
+
+// ─────────────────────────────────────────────
+// Conversion signal GSM (0-31) → dBm
+// ─────────────────────────────────────────────
+static int signalTodBm(int signal)
+{
+    if (signal == 99 || signal < 0 || signal > 31) {
+        return -999;  // Inconnu
+    }
+    return -113 + (2 * signal);
 }
 
 // ─────────────────────────────────────────────
@@ -106,12 +121,12 @@ String PagePrincipale::getHtml()
     int percent   = -1;
 
     if (DataLogger::hasLastDataForWeb(DataId::BatteryVoltage, d)) {
-        voltage = getFloat(d);  // Safe : retourne 0.0f si erreur
+        voltage = getFloat(d);
         batteryTime = timeHtml(d);
     }
 
     if (DataLogger::hasLastDataForWeb(DataId::BatteryPercent, d)) {
-        percent = (int)getFloat(d);  // Safe : retourne 0 si erreur
+        percent = (int)getFloat(d);
     }
 
     batteryLine = String(voltage, 2) + " V";
@@ -121,14 +136,14 @@ String PagePrincipale::getHtml()
 
     String charging;
     if (DataLogger::hasLastDataForWeb(DataId::Charging, d)) {
-        charging = getFloat(d) > 0.5f ? "En charge" : "Pas en charge";  // Safe
+        charging = getFloat(d) > 0.5f ? "En charge" : "Pas en charge";
     }
 
     // ───────── Alimentation externe ─────────
     String externalPower;
     String externalPowerTime;
     if (DataLogger::hasLastDataForWeb(DataId::ExternalPower, d)) {
-        externalPower = getFloat(d) > 0.5f ? "Oui" : "Non";  // Safe
+        externalPower = getFloat(d) > 0.5f ? "Oui" : "Non";
         externalPowerTime = timeHtml(d);
     }
 
@@ -140,21 +155,21 @@ String PagePrincipale::getHtml()
     String wifiTime;
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiStaEnabled, d)) {
-        staEnabled = getFloat(d) > 0.5f;  // Safe
+        staEnabled = getFloat(d) > 0.5f;
         wifiTime = timeHtml(d);
     }
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiStaConnected, d)) {
-        staConnected = getFloat(d) > 0.5f;  // Safe
+        staConnected = getFloat(d) > 0.5f;
         wifiTime = timeHtml(d);
     }
 
     int wifiRssi = 0;
     bool hasRssi = DataLogger::hasLastDataForWeb(DataId::WifiRssi, d);
-    if (hasRssi) wifiRssi = (int)getFloat(d);  // Safe
+    if (hasRssi) wifiRssi = (int)getFloat(d);
 
     if (DataLogger::hasLastDataForWeb(DataId::WifiApEnabled, d)) {
-        apEnabled = getFloat(d) > 0.5f;  // Safe
+        apEnabled = getFloat(d) > 0.5f;
         wifiTime = timeHtml(d);
     }
 
@@ -166,10 +181,69 @@ String PagePrincipale::getHtml()
 
     String apStatus = apEnabled ? "Actif" : "Désactivé";
 
-    // ───────── Config réseau ─────────
+    // ───────── Config réseau WiFi ─────────
     String staSsid = WIFI_STA_SSID;
     String staIp   = WIFI_STA_IP.toString();
     String apIp    = WIFI_AP_IP.toString();
+
+    // ───────── GSM / Cellular ─────────
+    bool gsmEnabled   = false;
+    bool gsmConnected = false;
+    int gsmSignal     = 99;
+    String gsmOperator = "";
+    String gsmIp       = "";
+    String gsmTime;
+
+    if (DataLogger::hasLastDataForWeb(DataId::CellularEnabled, d)) {
+        gsmEnabled = getFloat(d) > 0.5f;
+        gsmTime = timeHtml(d);
+    }
+
+    if (DataLogger::hasLastDataForWeb(DataId::CellularConnected, d)) {
+        gsmConnected = getFloat(d) > 0.5f;
+        gsmTime = timeHtml(d);
+    }
+
+    if (DataLogger::hasLastDataForWeb(DataId::CellularRssi, d)) {
+        gsmSignal = (int)getFloat(d);
+    }
+
+    if (DataLogger::hasLastDataForWeb(DataId::CellularOperator, d)) {
+        gsmOperator = getString(d);
+    }
+
+    if (DataLogger::hasLastDataForWeb(DataId::CellularIP, d)) {
+        gsmIp = getString(d);
+    }
+
+    // Construction du statut GSM
+    String gsmStatus;
+    String gsmDetails;
+    
+    if (!gsmEnabled) {
+        gsmStatus = "Désactivé";
+        gsmDetails = "";
+    } else if (!gsmConnected) {
+        gsmStatus = "Recherche réseau...";
+        gsmDetails = "";
+    } else {
+        // Connecté
+        int dBm = signalTodBm(gsmSignal);
+        if (dBm != -999) {
+            gsmStatus = "Connecté (" + String(dBm) + " dBm)";
+        } else {
+            gsmStatus = "Connecté";
+        }
+        
+        // Détails : opérateur et IP
+        if (gsmOperator.length() > 0) {
+            gsmDetails = "Opérateur : " + gsmOperator;
+        }
+        if (gsmIp.length() > 0) {
+            if (gsmDetails.length() > 0) gsmDetails += "<br>";
+            gsmDetails += "IP : " + gsmIp;
+        }
+    }
 
     // ───────── HTML ─────────
     String html = R"HTML(
@@ -179,10 +253,13 @@ String PagePrincipale::getHtml()
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Serre de Marie-Pierre</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 body { font-family: Arial; background: #1976d2; color: white; text-align: center; margin: 0; padding: 20px; }
 h1 { background: #0d47a1; padding: 20px; border-radius: 10px; }
 .card { background: rgba(255,255,255,0.2); margin: 20px auto; max-width: 600px; padding: 20px; border-radius: 15px; }
+.card.clickable { cursor: pointer; transition: background 0.3s; }
+.card.clickable:hover { background: rgba(255,255,255,0.3); }
 .value { font-size: 1.8em; font-weight: bold; }
 .subtext { font-size: 1.2em; margin-top: 15px; }
 small { font-size: 0.8em; }
@@ -193,6 +270,11 @@ small { font-size: 0.8em; }
 input:checked + .slider { background-color: #0d47a1; }
 input:checked + .slider:before { transform: translateX(46px); }
 input:disabled + .slider { opacity: 0.5; cursor: default; }
+#graphContainer { display: none; margin: 20px auto; max-width: 600px; background: rgba(255,255,255,0.9); padding: 20px; border-radius: 15px; }
+#graphContainer canvas { max-width: 100%; }
+#graphClose { background: #c62828; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+#graphClose:hover { background: #8e0000; }
+#graphLoading { color: #333; font-size: 1.2em; }
 </style>
 
 <script>
@@ -208,6 +290,114 @@ function toggleAp(cb) {
   if (!cb.checked) {
     fetch('/ap-toggle', { method: 'POST', body: new URLSearchParams() });
   }
+}
+
+function toggleGsm(cb) {
+  const params = new URLSearchParams();
+  if (cb.checked) {
+    params.append('state', '1');
+  }
+  fetch('/gsm-toggle', { method: 'POST', body: params });
+}
+
+// Graphique batterie
+let batteryChart = null;
+
+function showBatteryGraph() {
+  const container = document.getElementById('graphContainer');
+  const loading = document.getElementById('graphLoading');
+  const canvas = document.getElementById('batteryChart');
+  
+  container.style.display = 'block';
+  loading.style.display = 'block';
+  canvas.style.display = 'none';
+  
+  fetch('/graphdata')
+    .then(response => response.text())
+    .then(csv => {
+      loading.style.display = 'none';
+      canvas.style.display = 'block';
+      
+      // Parser le CSV
+      const lines = csv.trim().split('\n');
+      const labels = [];
+      const values = [];
+      
+      for (let i = 1; i < lines.length; i++) {  // Skip header
+        const parts = lines[i].split(',');
+        if (parts.length >= 2) {
+          const timestamp = parseInt(parts[0]);
+          const value = parseFloat(parts[1]);
+          
+          // Convertir timestamp en date lisible
+          const date = new Date(timestamp * 1000);
+          const label = date.toLocaleDateString('fr-FR', { 
+            day: '2-digit', 
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          labels.push(label);
+          values.push(value);
+        }
+      }
+      
+      // Détruire l'ancien graphique si existe
+      if (batteryChart) {
+        batteryChart.destroy();
+      }
+      
+      // Créer le graphique
+      const ctx = canvas.getContext('2d');
+      batteryChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Tension batterie (V)',
+            data: values,
+            borderColor: '#1976d2',
+            backgroundColor: 'rgba(25, 118, 210, 0.1)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: 'Historique tension batterie (30 derniers jours)',
+              color: '#333'
+            },
+            legend: {
+              labels: { color: '#333' }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { 
+                color: '#333',
+                maxTicksLimit: 10
+              }
+            },
+            y: {
+              ticks: { color: '#333' },
+              suggestedMin: 3.0,
+              suggestedMax: 4.5
+            }
+          }
+        }
+      });
+    })
+    .catch(error => {
+      loading.textContent = 'Erreur de chargement : ' + error;
+    });
+}
+
+function hideGraph() {
+  document.getElementById('graphContainer').style.display = 'none';
 }
 
 setInterval(() => {
@@ -265,8 +455,16 @@ setInterval(() => {
 </div>
 
 <div class="card">
-  <p>Statut GSM</p>
-  <p class="value">GSM non actif</p>
+  <p>GSM</p>
+  <p class="value">)HTML" + gsmStatus + R"HTML(</p>
+  )HTML" + (gsmDetails.length() > 0 ? "<p class=\"subtext\">" + gsmDetails + "</p>" : "") + R"HTML(
+  <p><small>)HTML" + gsmTime + R"HTML(</small></p>
+  <label class="switch">
+    <input type="checkbox"
+           )HTML" + String(gsmEnabled ? "checked" : "") + R"HTML(
+           onchange="toggleGsm(this)">
+    <span class="slider"></span>
+  </label>
 </div>
 
 <div class="card">
@@ -275,11 +473,17 @@ setInterval(() => {
   <p><small>)HTML" + externalPowerTime + R"HTML(</small></p>
 </div>
 
-<div class="card">
-  <p>Batterie</p>
+<div class="card clickable" onclick="showBatteryGraph()">
+  <p>Batterie <small>(cliquez pour le graphique)</small></p>
   <p class="value">)HTML" + batteryLine + R"HTML(</p>
   <p><small>)HTML" + batteryTime + R"HTML(</small></p>
   <p>)HTML" + charging + R"HTML(</p>
+</div>
+
+<div id="graphContainer">
+  <p id="graphLoading">Chargement des données...</p>
+  <canvas id="batteryChart"></canvas>
+  <button id="graphClose" onclick="hideGraph()">Fermer</button>
 </div>
 
 <div class="card">

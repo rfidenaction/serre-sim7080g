@@ -22,6 +22,7 @@ private:
     static void handleRoot(AsyncWebServerRequest *request);
     static void handleWifiToggle(AsyncWebServerRequest *request);
     static void handleApToggle(AsyncWebServerRequest *request);
+    static void handleGsmToggle(AsyncWebServerRequest *request);
     static void handleGraphData(AsyncWebServerRequest *request);
     static void handleReset(AsyncWebServerRequest *request);
     

@@ -49,11 +49,12 @@ enum class DataId : uint8_t {
     WifiApEnabled,
     WifiRssi,
 
-    // Cellular
-    CellularReady,
-    CellularSignal,
+    // Cellular (unifié avec le pattern WiFi)
+    CellularEnabled,
+    CellularConnected,
     CellularOperator,
     CellularIP,
+    CellularRssi,
 
     Boot,
     Error,

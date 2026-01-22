@@ -11,7 +11,7 @@ static const char* TAG = "SMS";
 // =============================================================================
 // DEBUG : mettre à true pour désactiver le SMS de démarrage
 // =============================================================================
-static constexpr bool DEBUG_SKIP_STARTUP_SMS = true;
+static constexpr bool DEBUG_SKIP_STARTUP_SMS = false;
 
 // Accès au modem (déclaré dans CellularManager.cpp)
 extern TinyGsm& getModem();
@@ -55,7 +55,7 @@ void SmsManager::init()
 // -----------------------------------------------------------------------------
 void SmsManager::sendStartupSms()
 {
-    String message = "Modem connecté - Réseau: " + CellularManager::getOperator() +
+    String message = "Modem connecte - Reseau: " + CellularManager::getOperator() +
                      " - IP: " + CellularManager::getLocalIP().toString() +
                      " - Signal: " + String(CellularManager::getSignalQuality()) + "/31";
     
@@ -126,7 +126,7 @@ void SmsManager::handle()
     }
     
     // Envoyer SMS de bienvenue (une seule fois)
-    if (!startupSmsSent && CellularManager::isReady()) {
+    if (!startupSmsSent && CellularManager::isConnected()) {
         if (DEBUG_SKIP_STARTUP_SMS) {
             Logger::info(TAG, "⚠️ DEBUG: SMS de démarrage désactivé");
             startupSmsSent = true;

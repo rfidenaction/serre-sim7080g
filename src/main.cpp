@@ -169,6 +169,16 @@ static void loopInit()
     );
 
     // -------------------------------------------------------------------------
+    // TÂCHE DATALOGGER (flush SPIFFS + réparation UTC)
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            DataLogger::handle();
+        },
+        30000UL  // 30 secondes
+    );
+
+    // -------------------------------------------------------------------------
     // TÂCHE BATTERIE / ALIMENTATION
     // -------------------------------------------------------------------------
     TaskManager::addTask(
@@ -248,25 +258,48 @@ static void loopInit()
     );
 
     // -------------------------------------------------------------------------
-    // TÂCHE CELLULAR → DataLogger
+    // TÂCHE CELLULAR → DataLogger (unifié avec pattern WiFi)
     // -------------------------------------------------------------------------
     TaskManager::addTask(
         []() {
-            // État READY (modem prêt pour SMS)
+            // État activé (préférence persistante)
             DataLogger::push(
                 DataType::System,
-                DataId::CellularReady,
-                CellularManager::isReady() ? 1.0f : 0.0f
+                DataId::CellularEnabled,
+                CellularManager::isEnabled() ? 1.0f : 0.0f
             );
-            
-            // Qualité signal (0-31 = signal, 99 = unknown/problème)
+
+            // État connecté (réseau + IP)
             DataLogger::push(
                 DataType::System,
-                DataId::CellularSignal,
+                DataId::CellularConnected,
+                CellularManager::isConnected() ? 1.0f : 0.0f
+            );
+
+            // Qualité signal (0-31 = signal, 99 = unknown)
+            DataLogger::push(
+                DataType::System,
+                DataId::CellularRssi,
                 (float)CellularManager::getSignalQuality()
             );
+
+            // Opérateur (String) - seulement si connecté
+            if (CellularManager::isConnected()) {
+                DataLogger::push(
+                    DataType::System,
+                    DataId::CellularOperator,
+                    CellularManager::getOperator()
+                );
+
+                // IP locale (String)
+                DataLogger::push(
+                    DataType::System,
+                    DataId::CellularIP,
+                    CellularManager::getLocalIP().toString()
+                );
+            }
         },
-        30000UL  // 30 secondes (passera à 300000UL en production)
+        30000UL  // 30 secondes
     );
 
     // Bascule définitive vers la loop de production
