@@ -97,13 +97,69 @@ void DataLogger::init()
     pendingCount = 0;
 
     // Reconstruction LastDataForWeb depuis la flash
+    // LECTURE UNIQUE du fichier CSV : on parcourt toutes les lignes
+    // et on garde la dernière valeur rencontrée pour chaque DataId.
+    // (Avant : 1 lecture complète par DataId = 22 lectures → ~60s sur SPIFFS)
+
+    File file = SPIFFS.open("/datalog.csv", FILE_READ);
+    if (!file) {
+        // Fichier n'existe pas — normal au premier boot
+        return;
+    }
+
+    // Table temporaire : dernière ligne vue pour chaque DataId
+    struct LastSeen {
+        bool found = false;
+        uint32_t timestamp = 0;
+        DataType type = DataType::System;
+        std::variant<float, String> value;
+    };
+    LastSeen lastSeen[(int)DataId::Count];
+
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        if (line.length() == 0) continue;
+
+        // Parser la ligne : timestamp,type,id,valueType,value
+        int firstComma = line.indexOf(',');
+        int secondComma = line.indexOf(',', firstComma + 1);
+        int thirdComma = line.indexOf(',', secondComma + 1);
+        int fourthComma = line.indexOf(',', thirdComma + 1);
+
+        if (firstComma == -1 || secondComma == -1 || thirdComma == -1 || fourthComma == -1) {
+            continue;  // Ligne mal formatée, ignorer
+        }
+
+        unsigned long ts = line.substring(0, firstComma).toInt();
+        uint8_t typeByte = line.substring(firstComma + 1, secondComma).toInt();
+        uint8_t idByte = line.substring(secondComma + 1, thirdComma).toInt();
+        uint8_t valueType = line.substring(thirdComma + 1, fourthComma).toInt();
+        String valueStr = line.substring(fourthComma + 1);
+
+        if (idByte >= (uint8_t)DataId::Count) continue;  // Id hors limites
+
+        LastSeen& ls = lastSeen[idByte];
+        ls.found = true;
+        ls.timestamp = ts;
+        ls.type = static_cast<DataType>(typeByte);
+
+        if (valueType == 0) {
+            ls.value = valueStr.toFloat();
+        } else {
+            valueStr.trim();
+            ls.value = unescapeCSV(valueStr);
+        }
+    }
+
+    file.close();
+
+    // Peupler lastDataForWeb depuis la table temporaire
     for (int id = 0; id < (int)DataId::Count; ++id) {
-        DataRecord rec;
-        if (getLastUtcRecord((DataId)id, rec)) {
+        if (lastSeen[id].found) {
             LastDataForWeb e;
-            e.value     = rec.value;  // Copie le variant (float OU String)
+            e.value     = lastSeen[id].value;
             e.t_rel_ms  = 0;
-            e.t_utc     = rec.timestamp;
+            e.t_utc     = lastSeen[id].timestamp;
             e.utc_valid = true;
             lastDataForWeb[(DataId)id] = e;
         }

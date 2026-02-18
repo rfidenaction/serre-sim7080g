@@ -11,6 +11,8 @@
 #include "Config/TimingConfig.h"
 
 #include "Connectivity/WiFiManager.h"
+#include "Connectivity/CellularStream.h"
+#include "Connectivity/CellularEvent.h"
 #include "Connectivity/CellularManager.h"
 #include "Connectivity/SmsManager.h"
 #include "Connectivity/ManagerUTC.h"
@@ -47,6 +49,49 @@ static void loopRun();
 static void (*currentLoop)() = loopInit;
 
 // -----------------------------------------------------------------------------
+// Callback CellularEvent
+// Logs uniquement : 
+// - Erreurs (toujours)
+// - OK quand pending actif (notre réponse attendue)
+// - URC/LINE pendant boot
+// -----------------------------------------------------------------------------
+void onCellularLine(CellularLineType type, const char* line)
+{
+    // Toujours dispatcher vers CellularManager pour le système pending
+    CellularManager::onModemLine(type, line);
+    
+    // Erreurs : toujours logger
+    if (type == CellularLineType::ERROR) {
+        Logger::error("CellEvent", "✗ ERROR");
+        return;
+    }
+    
+    // OK : logger uniquement si pending actif (c'est notre réponse)
+    if (type == CellularLineType::OK) {
+        if (CellularManager::isPendingActive()) {
+            Logger::info("CellEvent", "✓ OK");
+        }
+        return;
+    }
+    
+    // PROMPT : logger uniquement si pending actif
+    if (type == CellularLineType::PROMPT) {
+        if (CellularManager::isPendingActive()) {
+            Logger::info("CellEvent", "→ >");
+        }
+        return;
+    }
+    
+    // LINE (URC, réponses) : logger pendant boot ou si pending actif
+    if (type == CellularLineType::LINE) {
+        if (!CellularManager::isConnected() || CellularManager::isPendingActive()) {
+            Logger::info("CellEvent", String("← ") + line);
+        }
+        return;
+    }
+}
+
+// -----------------------------------------------------------------------------
 // SETUP
 // -----------------------------------------------------------------------------
 
@@ -57,7 +102,6 @@ void setup()
 
     Logger::begin(Serial, Logger::Level::INFO);
     Logger::info("Boot système");
-
 
     // -------------------------------------------------------------------------
     // Initialisation timezone système (France / Paris)
@@ -78,9 +122,22 @@ void setup()
     // --- Alimentation / PMU ---
     PowerManager::init();   // Initialise + première lecture immédiate
 
-    // --- Connectivités ---
-    WiFiManager::init();        // STA + AP
-    CellularManager::init();    // Modem SIM7080G Cat-M
+    // --- CellularEvent (câblage dans l'ordre exact) ---
+    // 1. Init CellularEvent
+    CellularEvent::init();
+    
+    // 2. Brancher callback octet CellularStream → CellularEvent
+    CellularStream::instance().setByteCallback(CellularEvent::onByte);
+    
+    // 3. Brancher callback ligne CellularEvent → main (qui dispatch vers CellularManager)
+    CellularEvent::setLineCallback(onCellularLine);
+    
+    // 4. Activer le parsing
+    CellularEvent::enableLineParsing(true);
+
+    // --- Connectivités (APRÈS le câblage CellularEvent) ---
+    WiFiManager::init();        // Active radio WiFi + lwIP (AP/STA démarrés par TaskManager)
+    CellularManager::init();    // Modem SIM7080G Cat-M (instancie TinyGSM sur CellularStream)
     SmsManager::init();         // Gestionnaire SMS
 
     // --- Capteurs ---
@@ -124,6 +181,32 @@ static void loopInit()
 
     // Démarrage du TaskManager
     TaskManager::init();
+
+    // -------------------------------------------------------------------------
+    // TÂCHE CELLULAREVENT (polling UART modem - PRIORITAIRE)
+    // -------------------------------------------------------------------------
+    // Période 20ms — pompe Serial1 via CellularStream
+    // Budget temps garanti 5ms max
+    // Cette tâche DOIT être en premier (priorité absolue)
+    TaskManager::addTask(
+        []() {
+            CellularEvent::poll();
+        },
+        20UL  // 20 millisecondes
+    );
+
+    // -------------------------------------------------------------------------
+    // TÂCHE WIFI (machine d'états non-bloquante)
+    // -------------------------------------------------------------------------
+    // Période 250ms — premier tick démarre la séquence AP_MODE_SET
+    // L'AP démarrera ~750ms après l'entrée en RUN (tick 3)
+    // Budget temps garanti <15ms sauf AP_START unique (~725ms au tick 3)
+    TaskManager::addTask(
+        []() {
+            WiFiManager::handle();
+        },
+        250UL
+    );
 
     // -------------------------------------------------------------------------
     // INITIALISATION UTC / NTP
@@ -302,6 +385,28 @@ static void loopInit()
         30000UL  // 30 secondes
     );
 
+    // -------------------------------------------------------------------------
+    // DEBUG : Statistiques CellularStream/CellularEvent (à supprimer après test)
+    // -------------------------------------------------------------------------
+    TaskManager::addTask(
+        []() {
+            uint32_t poll = CellularEvent::getPollCount();
+            uint32_t tap = CellularStream::instance().getTapBytesCount();
+            uint32_t ovf = CellularStream::instance().getOverflows();
+            uint32_t lines = CellularEvent::getLinesReceived();
+            uint32_t lineOvf = CellularEvent::getBufferOverflows();
+            
+            Logger::info("CellDbg", 
+                String("poll=") + poll +
+                " tap=" + tap + 
+                " ovf=" + ovf + 
+                " lines=" + lines + 
+                " lineOvf=" + lineOvf
+            );
+        },
+        10000UL  // 10 secondes
+    );
+
     // Bascule définitive vers la loop de production
     currentLoop = loopRun;
 }
@@ -312,6 +417,5 @@ static void loopInit()
 
 static void loopRun()
 {
-    WiFiManager::handle();
     TaskManager::handle();
 }

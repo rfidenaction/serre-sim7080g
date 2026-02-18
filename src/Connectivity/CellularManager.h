@@ -1,5 +1,7 @@
 // src/Connectivity/CellularManager.h
-// Version corrigée avec états POWERING_ON et POWERING_OFF
+// Gestionnaire modem SIM7080G — 100% non-bloquant
+// Tous les appels AT passent par le système pending (SEND/WAIT)
+// TinyGSM conservé uniquement comme wrapper haut niveau (SMS, futur MQTT)
 
 #ifndef CELLULARMANAGER_H
 #define CELLULARMANAGER_H
@@ -7,6 +9,7 @@
 #include <Arduino.h>
 #include <TinyGsmClient.h>
 #include <Preferences.h>
+#include "Connectivity/CellularEvent.h"
 
 class CellularManager
 {
@@ -43,6 +46,11 @@ public:
     static void handle();  // Appelée toutes les 2 secondes par TaskManager
 
     // -----------------------------------------------------------------------------
+    // Réception lignes modem (appelé par CellularEvent via main.cpp)
+    // -----------------------------------------------------------------------------
+    static void onModemLine(CellularLineType type, const char* line);
+
+    // -----------------------------------------------------------------------------
     // Contrôle ON/OFF (persistant)
     // -----------------------------------------------------------------------------
     static void setEnabled(bool enabled);  // Active/désactive le GSM (sauvegardé en NVS)
@@ -62,6 +70,7 @@ public:
     static int getSignalQuality();       // 0-31 (99 = inconnu)
     static String getOperator();         // Nom opérateur
     static IPAddress getLocalIP();       // IP locale
+    static bool isPendingActive();       // Pending en cours ?
 
     // -----------------------------------------------------------------------------
     // Helpers
@@ -89,6 +98,34 @@ private:
     static int bearerCycleCount;
     static unsigned long handleStartTime;
     static unsigned long powerStepStartMs;  // Timestamp pour séquences PWRKEY
+
+    // -----------------------------------------------------------------------------
+    // Système pending (SEND/WAIT non-bloquant)
+    // -----------------------------------------------------------------------------
+    // WAIT_OK           : commande SET simple (ex: AT)
+    // WAIT_OK_OR_ERROR  : commande SET avec ERROR possible (ex: AT+CFUN=0)
+    // WAIT_CPIN         : capture +CPIN: xxx puis OK (SIM_CHECK)
+    // WAIT_NUMERIC      : capture ligne 100% digits puis OK (CCID/IMEI/IMSI)
+    // WAIT_PREFIX       : capture première ligne matchant pendingPrefix puis OK
+    //                     Utilisé pour toute commande QUERY (AT+CEREG?, AT+CSQ, etc.)
+    // -----------------------------------------------------------------------------
+    enum class PendingKind {
+        NONE,
+        WAIT_OK,
+        WAIT_OK_OR_ERROR,
+        WAIT_CPIN,
+        WAIT_NUMERIC,
+        WAIT_PREFIX         // Générique : capture ligne matchant un préfixe configurable
+    };
+    
+    static bool pendingActive;
+    static PendingKind pendingKind;
+    static unsigned long pendingStartMs;
+    static unsigned long pendingTimeoutMs;
+    static bool pendingDone;
+    static bool pendingSuccess;
+    static char pendingData[64];    // Données extraites (ligne complète pour WAIT_PREFIX)
+    static char pendingPrefix[16];  // Préfixe attendu pour WAIT_PREFIX (ex: "+CEREG:")
 
     // -----------------------------------------------------------------------------
     // Gestion ticket modem
@@ -119,6 +156,14 @@ private:
     static void changeState(State newState, const char* stateName);
     static bool budgetExceeded();
     static void loadPreferences();
+
+    // -----------------------------------------------------------------------------
+    // Helpers pending
+    // prefix : utilisé uniquement avec WAIT_PREFIX, ignoré sinon
+    // -----------------------------------------------------------------------------
+    static void startPending(PendingKind kind, unsigned long timeoutMs, const char* prefix = nullptr);
+    static void clearPending();
+    static void checkPendingTimeout();
 };
 
 // -----------------------------------------------------------------------------

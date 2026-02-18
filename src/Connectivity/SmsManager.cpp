@@ -11,7 +11,7 @@ static const char* TAG = "SMS";
 // =============================================================================
 // DEBUG : mettre à true pour désactiver le SMS de démarrage
 // =============================================================================
-static constexpr bool DEBUG_SKIP_STARTUP_SMS = false;
+static constexpr bool DEBUG_SKIP_STARTUP_SMS = true;
 
 // Accès au modem (déclaré dans CellularManager.cpp)
 extern TinyGsm& getModem();

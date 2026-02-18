@@ -10,8 +10,12 @@ projet/
 │   │   └── TimingConfig.h            // TOUS les timings (périodes de mesure, arrosage, envoi données, etc.)
 │   │
 │   ├── Connectivity/
+│   │   ├── CellularEvent.h
+│   │   ├── CellularEvent.cpp  
 │   │   ├── CellularManager.h
 │   │   ├── CellularManager.cpp       // SIM7080G : modem, data, SMS, GPS
+│   │   ├── CellularStream.h
+│   │   ├── CellularStream.cpp  
 │   │   ├── ManagerUTC.h
 │   │   ├── ManagerUTC.cpp      
 │   │   ├── SmsManager.h   
