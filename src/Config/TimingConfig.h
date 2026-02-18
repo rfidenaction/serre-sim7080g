@@ -1,6 +1,5 @@
 // Config/TimingConfig.h
 #pragma once
-
 /*
  * TimingConfig
  *
@@ -19,13 +18,12 @@
 // =============================================================================
 // Démarrage système
 // =============================================================================
-
 /*
- * Durée de la phase d’initialisation système (INIT).
+ * Durée de la phase d'initialisation système (INIT).
  *
  * Pendant cette phase :
  *  - les modules matériels sont initialisés
- *  - aucune tâche périodique n’est exécutée
+ *  - aucune tâche périodique n'est exécutée
  *  - TaskManager / EventManager / Monitor sont inactifs
  *
  * Objectif :
@@ -37,9 +35,8 @@
 // =============================================================================
 // EventManager / TaskManager supervision
 // =============================================================================
-
 /*
- * Période nominale d’appel d’EventManager par TaskManager.
+ * Période nominale d'appel d'EventManager par TaskManager.
  * Définit le rythme attendu du cœur du système en régime permanent.
  */
 #define EVENT_MANAGER_PERIOD_MS        2000
@@ -47,7 +44,7 @@
 /*
  * Fenêtre temporelle acceptable autour de la période nominale.
  *
- * Si l’intervalle réel entre deux appels sort de cette plage,
+ * Si l'intervalle réel entre deux appels sort de cette plage,
  * TaskManagerMonitor bascule en état WARNING.
  */
 #define EVENT_MANAGER_MIN_PERIOD_MS    1500
@@ -56,13 +53,12 @@
 // =============================================================================
 // Alimentation / PowerManager (PMU)
 // =============================================================================
-
 /*
- * Période de mise à jour de l’état global d’alimentation :
+ * Période de mise à jour de l'état global d'alimentation :
  *  - tension batterie
  *  - pourcentage estimé
  *  - état de charge
- *  - présence d’alimentation externe
+ *  - présence d'alimentation externe
  *
  * Fréquence volontairement basse :
  *  - données physiquement lentes
@@ -73,18 +69,32 @@
 // =============================================================================
 // WiFi (diagnostic et logging)
 // =============================================================================
-
 /*
- * Période d’enregistrement des informations WiFi (RSSI, état).
+ * Période d'enregistrement des informations WiFi (RSSI, état).
  * Utilisé pour le suivi long terme, pas pour la réactivité immédiate.
  */
 //  #define WIFI_STATUS_LOG_INTERVAL_MS    60000
 #define WIFI_STATUS_UPDATE_INTERVAL_MS 30000UL
 
 // =============================================================================
+// Modem SIM7080G
+// =============================================================================
+/*
+ * Délai de stabilisation UART du SIM7080G après mise sous tension PMU.
+ *
+ * Le modem a besoin de ce délai pour initialiser son interface UART
+ * après l'alimentation DC3 + BLDO2. Sans ce délai, le premier testAT()
+ * échoue systématiquement (~1200ms perdu). Avec ce délai, le modem
+ * répond au premier essai en ~300ms.
+ *
+ * Non-bloquant : handleModemInit() retourne immédiatement,
+ * TaskManager et WiFi continuent de tourner.
+ */
+#define MODEM_STABILIZE_DELAY_MS   2500
+
+// =============================================================================
 // Réservé – extensions futures
 // =============================================================================
-
 // Capteurs environnementaux
 // #define AIR_SENSOR_UPDATE_INTERVAL_MS      ...
 // #define SOIL_SENSOR_UPDATE_INTERVAL_MS     ...

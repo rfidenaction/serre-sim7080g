@@ -188,9 +188,14 @@ static void loopInit()
     // Période 20ms — pompe Serial1 via CellularStream
     // Budget temps garanti 5ms max
     // Cette tâche DOIT être en premier (priorité absolue)
+    // Guard : pas de polling si GSM désactivé (économie CPU + cohérence)
+    // setEnabled(true) positionne le flag AVANT POWERING_ON → poll reprend
+    // avant le premier échange AT
     TaskManager::addTask(
         []() {
-            CellularEvent::poll();
+            if (CellularManager::isEnabled()) {
+                CellularEvent::poll();
+            }
         },
         20UL  // 20 millisecondes
     );
@@ -244,9 +249,12 @@ static void loopInit()
     // -------------------------------------------------------------------------
     // TÂCHE SMSMANAGER (machine d'états SMS)
     // -------------------------------------------------------------------------
+    // Guard : SMS impossible sans GSM actif
     TaskManager::addTask(
         []() {
-            SmsManager::handle();
+            if (CellularManager::isEnabled()) {
+                SmsManager::handle();
+            }
         },
         2000UL  // 2 secondes
     );
@@ -388,8 +396,11 @@ static void loopInit()
     // -------------------------------------------------------------------------
     // DEBUG : Statistiques CellularStream/CellularEvent (à supprimer après test)
     // -------------------------------------------------------------------------
+    // Guard : pas de stats si GSM désactivé
     TaskManager::addTask(
         []() {
+            if (!CellularManager::isEnabled()) return;
+            
             uint32_t poll = CellularEvent::getPollCount();
             uint32_t tap = CellularStream::instance().getTapBytesCount();
             uint32_t ovf = CellularStream::instance().getOverflows();

@@ -9,6 +9,7 @@
 #include "Utils/Logger.h"
 #include "Config/IO-Config.h"
 #include "Config/NetworkConfig.h"
+#include "Config/TimingConfig.h"
 
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
@@ -681,6 +682,15 @@ void CellularManager::handlePoweringOff()
 // =============================================================================
 void CellularManager::handleModemInit()
 {
+    // Délai de stabilisation : laisser le SIM7080G initialiser son UART
+    // après la mise sous tension PMU (DC3 + BLDO2).
+    // Non-bloquant : on retourne, TaskManager et WiFi continuent.
+    // Constaté : sans ce délai, premier testAT échoue systématiquement (~1200ms perdu).
+    // Avec ce délai, le modem répond au premier essai en ~300ms.
+    if (millis() - lastStateChange < MODEM_STABILIZE_DELAY_MS) {
+        return;
+    }
+
     // subStep :
     // 0 = test AT normal (avec retry progressif)
     // 1 = power-cycle : pin LOW
